@@ -1,0 +1,88 @@
+# LEGIT ENOUGH
+
+**A single-player shop sim in lit pixel art, made in Unity 6.** You run a damp little shop that makes passports for people who can't get them the normal way:
+- pose nervous customers for the photo;
+- type up their papers on a 1998 computer;
+- print, bind and haggle;
+- hope it all holds up at the border.
+
+Nothing has to be perfect. Just legit enough.
+
+| | |
+|---|---|
+| ![Samir walks into the shop](Steam/store/screenshots/01_samir_walks_in.png) | ![Posing a customer for the photo](Steam/store/screenshots/02_camera_posed.png) |
+| ![The document editor on the shop computer](Steam/store/screenshots/03_editor.png) | ![A busy night](Steam/store/screenshots/05_busy_night.png) |
+
+---
+
+## Gameplay
+
+- **Customers walk in.** Each one is modular, seeded and persistent, with 14 traits, 6 hidden stats, 12 motivations and personality-driven dialogue. A recurring story follows Samir, and later his brother.
+- **Photograph them.** Pose the head (9 directions plus in-between frames) and slide the shoulders. Then deal with blinking, nervous expressions, glasses and hats, backdrops, zoom and the cheap camera's shutter lag.
+- **Make the document** on the shop computer's *OFFICIAL-ISH 98*: pick the template, fill in the fields, dates and number, and place the photo. Then print it (the printer jams), bind it, check it, or shred it.
+- **Get paid.** Negotiate against a hidden reservation price, juggle orders, deadlines and urgent jobs, and keep the ledger out of the red: rent, supplies, reputation tiers, heat, and risk per country.
+- **Live with the outcomes.**
+  - Results arrive days later through the inbox, or never.
+  - A client database tracks everyone.
+  - News brings risk spikes, demand surges, power cuts, a broken printer, and rule changes that leave your handbook out of date.
+- **10 real countries with fictional rules**, each unlocked by tier, plus handbook purchases and equipment tiers with real mechanical effects.
+- **Every day has a shape:** the morning card, the sign on the door, closing time and the end-of-day ledger.
+
+**Status:** the full core loop and business simulation are playable.
+- A Steam store page draft, store art and a trailer exist.
+- Not built yet: visas, campaign milestones and endings, saving and loading, more story arcs, and music.
+
+## Tech stack
+
+| Area | What it uses |
+|---|---|
+| Engine | **Unity 6** (6000.0.32f1), 2D |
+| Simulation | `LegitEnough.Sim`: **pure C# with no UnityEngine references**. `GameSession` is the whole game state, and the presentation calls `Tick(dt)`, issues commands and drains events. |
+| Art | A **software pixel renderer**, with everything drawn in code at 480×270 and shown at 4× through point-filtered textures. One banded light map lights the room and the people, following the clock, the weather and power cuts. |
+| UI | **UI Toolkit** styled by one stylesheet, with two pixel fonts |
+| Fonts | `LegitPixel` and `LegitStamp`, generated from glyph tables as TrueType by a Node script, which also writes the same tables as C# for text painted into the art |
+| Audio | Sound effects synthesized in code |
+| Testing | An offline test runner (18 simulation tests, including a 20-day bot playthrough), offline compile checks of the Unity layer, and a batch-mode Unity smoke test |
+| Trailer | A Python pipeline: 60 fps takes recorded from the game, cut on a 100 BPM beat grid, with a synthesized score. Every sound the game made during a take is re-synthesized on the exact frame it happened. |
+
+## What I built
+
+All of it. The game code is **`Assets/LegitEnough/Scripts/`**: 76 C# scripts, about 15k lines.
+
+| Area | Where |
+|---|---|
+| The rules: visits, customers and their personalities, dialogue, the story cast, countries, the handbook | `Sim/` (44 scripts): `GameSession*.cs`, `Customers/`, `Content/` |
+| Photo scoring, document quality, negotiation, orders, the ledger, standing, inbox and outcomes, news, equipment | `Sim/Documents/`, `Sim/Business/`, `Sim/Jobs/`, `Sim/Core/` (every number in `Balance.cs`) |
+| The presentation: boot, the shop, the photo station, the computer, paper handling, days, UI | `Game/` (32 scripts) |
+| The pixel renderer: room, props, lights, fonts, logo, flags, icons | `Game/Pixel/` (`PixelBuffer`, `PixelPainter`, `RoomArt`, `ShopRenderer`, `FigurePainter`) |
+| Tests, art and trailer tools | `Tools/SimTests/`, `Tools/ArtGen/`, `Tools/Trailer/` |
+
+### Code highlights
+
+- **`Sim/` never touches Unity.** A redesign or a full art pass can replace `Scripts/Game` without changing a single rule, and the same rules run in the offline tests and the 20-day bot playthrough.
+- **`Game/Pixel/ShopRenderer.cs`:** bakes the room behind the customers and the counter in front of them. It then animates small layers on top: rain in the window, the door and bell, the clock, the screen, the printer and the cash display.
+  - **`RoomArt`** swaps physical objects as you upgrade: CRT to monitors, taped inkjet to laser, bedsheet backdrop to studio.
+- **`FigurePainter`:** keeps the customers' vector geometry, so photo scoring matches exactly what you see, but rasterizes it as pixels. The cheap camera gives chunkier pixels.
+- **Hidden quality** (`PhotoEvaluator`, `DocumentEvaluator`): photo, information and formatting are scored with soft penalties and hard multipliers.
+- **`Tools/ArtGen/fonts.js`:** plain Node with no packages. It writes both pixel fonts as TrueType outlines (one square per pixel) and the matching C# glyph tables. `build.js` renders the visual-direction concept art the same way.
+
+## Scenes
+
+| Scene | Purpose |
+|---|---|
+| `Assets/Scenes/SampleScene.unity` | Any scene works: `GameBootstrap` creates everything at runtime. |
+
+## Integrated third-party assets
+
+None. The art, the two fonts, the UI and the sound are all generated by the project's own code.
+
+## Docs
+
+- [`PROJECT_README.md`](PROJECT_README.md): the project's own notes, covering controls, the architecture, every system with its design-doc section, tuning, tests, fonts and concept art
+- `Steam/store/STORE_PAGE.md`: the store page draft
+
+## About this repository
+
+This public repository is a **showcase**. It contains the documentation and the **108 source files I wrote** for this project. The complete Unity project, with the store-page material and the trailer, is kept in a private repository.
+
+Copyright © Omer Avcioglu (McHunter Studio). **All rights reserved.** Viewing only; see [LICENSE](LICENSE).
