@@ -30,7 +30,7 @@ FPS = 60
 W, H = 1920, 1080
 FPB = 36                       # frames per beat
 SPF = SR // FPS                # audio samples per video frame (800)
-PRE = 4                        # one bar in front for the McHunter Studios ident
+PRE = 4                        # one bar in front for the McHunter Studio ident
 TOTAL_BEATS = 128 + PRE
 TAIL = 1.2                     # black + ring-out after the last beat
 FONTS = os.path.join(ROOT, "Assets", "LegitEnough", "Resources", "LegitEnough", "Fonts")
@@ -444,7 +444,7 @@ class Logo:
 
 # ====================================================================== studio ident
 class Studio:
-    """McHunter Studios, redrawn as pixel art (studio_logo.py). The ident builds it over the
+    """McHunter Studio, redrawn as pixel art (studio_logo.py). The ident builds it over the
     darkened night shop in time with the music: the mark dissolves in, the blue dot pops on the
     beat, the small dot on the next off-beat, then the wordmark types itself in."""
     SCALE, END_SCALE = 8, 4

@@ -1,8 +1,8 @@
-"""Pixel-art redraw of the McHunter Studios logo for the trailer.
+"""Pixel-art redraw of the McHunter Studio logo for the trailer.
 
 The orange mark is sampled from the original artwork (art/mchunter_logo.webp) on a 22 px grid,
 mirrored so it stays perfectly symmetric top to bottom; the blue dot and the small orange dot are
-clean pixel circles; the wordmark is hand-drawn (cap height 10, 2 px strokes) and "STUDIOS" is
+clean pixel circles; the wordmark is hand-drawn (cap height 10, 2 px strokes) and "STUDIO" is
 set in 3x5 caps. Writes art/mchunter_pixel.png (1 px = 1 art pixel) and art/mchunter_pixel_x8.png.
 
 Usage: python Tools/Trailer/studio_logo.py
@@ -103,7 +103,7 @@ def build():
     mark = mark[:, :w]
 
     wm = word("McHunter", WORD, GAPS, 10)
-    sub = word("STUDIOS", TINY, 2, 5)
+    sub = word("STUDIO", TINY, 2, 5)  # the studio is "McHunter Studio" (singular), as on Steam
     x_wm = w + 2
     logo = np.zeros((ROWS, x_wm + wm.shape[1]), np.uint8)
     logo[:, :w] = mark
