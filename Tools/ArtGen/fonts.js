@@ -1,6 +1,7 @@
 // Builds the game's two pixel fonts as TrueType files (every pixel is a square outline).
 //   LegitPixel  - 5x7 proportional body font with lowercase, descenders and Latin-1 accents
-//   LegitStamp  - bold 2px-stroke capitals for headings (lowercase maps to capitals)
+//   LegitStamp  - bold 2px-stroke capitals for headings (lowercase maps to capitals), with the
+//                 dieresis, dot, breve and cedilla capitals Turkish needs (Ç Ğ İ Ö Ş Ü and kin)
 // Usage: node Tools/ArtGen/fonts.js   (writes Assets/LegitEnough/Resources/LegitEnough/Fonts/*.ttf)
 // One font pixel is 100 units and the em is 1200, so font-size 24 = 2 screen px per font pixel.
 const fs = require('fs'), path = require('path');
@@ -27,7 +28,7 @@ const BODY = {
   c: '.....|.....|.###.|#....|#....|#...#|.###.', d: '....#|....#|.####|#...#|#...#|#...#|.####',
   e: '.....|.....|.###.|#...#|#####|#....|.###.', f: '..##|.#..|.#..|###.|.#..|.#..|.#..',
   g: '.....|.....|.####|#...#|#...#|#...#|.####|....#|.###.', h: '#....|#....|#.##.|##..#|#...#|#...#|#...#',
-  i: '.#.|...|##.|.#.|.#.|.#.|###', j: '...#|....|..##|...#|...#|...#|...#|#..#|.##.',
+  i: '.#.|...|##.|.#.|.#.|.#.|###', 'ı': '...|...|##.|.#.|.#.|.#.|###', j: '...#|....|..##|...#|...#|...#|...#|#..#|.##.',
   k: '#...|#...|#..#|#.#.|##..|#.#.|#..#', l: '##.|.#.|.#.|.#.|.#.|.#.|###',
   m: '.....|.....|##.#.|#.#.#|#.#.#|#.#.#|#.#.#', n: '.....|.....|#.##.|##..#|#...#|#...#|#...#',
   o: '.....|.....|.###.|#...#|#...#|#...#|.###.', p: '.....|.....|####.|#...#|#...#|#...#|####.|#....|#....',
@@ -115,6 +116,11 @@ const STAMP = {
   '×': '......|##..##|.####.|..##..|.####.|##..##|......|......', '€': '..####|.##...|######|.##...|######|.##...|..####|......',
 };
 
+// Marks for the stamp capitals: 2x2 blocks to match the 2px strokes, two rows above the cap with a
+// one-row gap (so they poke one font pixel above the ascender); cedillas hang in the descender.
+const STAMP_MARKS = { '̈': '##..##|##..##', '̇': '..##..|..##..', '̆': '##..##|.####.' };
+const STAMP_CEDILLA = '..##..|.##...';
+
 function rows(s) { return s.split('|'); }
 
 // A glyph as a set of filled pixels: {w, cells:[[col,row]...]} with row 0 = cap top, increasing downward.
@@ -136,6 +142,22 @@ function compose(ch) {
     if (!upper && (nfd[0] === 'i' || nfd[0] === 'j')) g.cells = g.cells.filter(([, y]) => y > 1);
     if (!upper) g.cells = g.cells.filter(([, y]) => y > 1 || nfd[0] === 'b' || nfd[0] === 'd' || nfd[0] === 'h' || nfd[0] === 'k' || nfd[0] === 'l');
     bitmap(mk, top).cells.forEach(([x, y]) => g.cells.push([x + off, y]));
+  }
+  return g;
+}
+
+/** An accented stamp capital (lowercase input maps to the capital), or null if a mark isn't drawn. */
+function stampCompose(ch) {
+  const nfd = ch.normalize('NFD');
+  if (nfd.length < 2) return null;
+  const base = STAMP[nfd[0].toUpperCase()];
+  if (!base) return null;
+  const g = bitmap(base);
+  const off = Math.floor((g.w - 6) / 2);
+  for (const m of nfd.slice(1)) {
+    if (m === '̧') { bitmap(STAMP_CEDILLA, 8).cells.forEach(([x, y]) => g.cells.push([x + off, y])); continue; }
+    const mk = STAMP_MARKS[m]; if (!mk) return null;
+    bitmap(mk, -3).cells.forEach(([x, y]) => g.cells.push([x + off, y]));
   }
   return g;
 }
@@ -256,6 +278,12 @@ function stampGlyphs() {
   for (const ch of Object.keys(STAMP)) {
     add(ch, STAMP[ch]);
     if (/[A-Z]/.test(ch)) add(ch.toLowerCase(), STAMP[ch]);
+  }
+  add('ı', STAMP.I);
+  for (let cp = 0xc0; cp <= 0x17f; cp++) {
+    const ch = String.fromCodePoint(cp);
+    const g = stampCompose(ch);
+    if (g) { const t = trimmed(g, false); out.push({ code: cp, adv: t.adv, cells: t.cells }); }
   }
   add(' ', STAMP[' ']);
   return out;

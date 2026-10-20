@@ -6,7 +6,8 @@ every sound the game made during a take is re-synthesized at the exact frame it 
 
 Usage:
   python Tools/Trailer/make_trailer.py --capture <out>/capture --out Steam/trailer
-  (--preview renders a contact sheet of every cut instead of the movie; --uhd adds a 4K copy)
+  (--preview renders a contact sheet of every cut instead of the movie; --uhd adds a 4K copy;
+   --lang zh-CN|tr|ja|ko makes a localized version from the same takes, see locales.py)
 """
 import argparse
 import json
@@ -22,9 +23,12 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, "..", ".."))
 sys.path.insert(0, HERE)
 
+import locales  # noqa: E402
 from audio import dsp, inst, sfx  # noqa: E402
 from audio.dsp import SR, n_of  # noqa: E402
 from audio.score import BAR, BEAT, Score  # noqa: E402
+
+LOC = None                     # the locales.LOCALES entry for --lang; None is the English original
 
 FPS = 60
 W, H = 1920, 1080
@@ -106,20 +110,21 @@ EDL_MAIN = [
     S(116, 12, "night", 0.50, dim=0.62, logo=True, fade_out=(126.5, 128.0)),
 ]
 
+# `key` names the card for the translations in locales.py.
 CARDS_MAIN = [
-    dict(text="OCTOBER 2008.", at=1.0, until=3.9, style="caption"),
-    dict(text="THE SIGN SAYS PASSPORT PHOTOS.", at=4.2, until=7.85, style="caption"),
-    dict(text="TAKE THEIR PHOTO.", at=20.0, until=22.7, style="big"),
-    dict(text="PEOPLE BLINK.", at=37.2, until=39.85, style="caption"),
-    dict(text="MAKE THEIR PAPERS.", at=44.0, until=46.7, style="big"),
-    dict(text="YOU HIT IT. NOT TOO HARD.", at=60.25, until=63.85, style="caption"),
-    dict(text="GET PAID. PROBABLY.", at=72.25, until=75.9, style="caption"),
-    dict(text="RULES CHANGE.", at=80.2, until=81.9, style="caption"),
-    dict(text="WORD GETS AROUND.", at=84.2, until=87.9, style="caption"),
-    dict(text="FROM BEDSHEET TO STUDIO.", at=97.0, until=101.9, style="caption"),
-    dict(text="IT DOESN'T HAVE TO BE PERFECT.", at=108.0, until=111.95, style="big"),
-    dict(text="JUST...", at=113.0, until=115.85, style="big"),
-    dict(text="WISHLIST ON STEAM", at=120.0, until=128.0, style="end"),
+    dict(key="october", text="OCTOBER 2008.", at=1.0, until=3.9, style="caption"),
+    dict(key="sign", text="THE SIGN SAYS PASSPORT PHOTOS.", at=4.2, until=7.85, style="caption"),
+    dict(key="photo", text="TAKE THEIR PHOTO.", at=20.0, until=22.7, style="big"),
+    dict(key="blink", text="PEOPLE BLINK.", at=37.2, until=39.85, style="caption"),
+    dict(key="papers", text="MAKE THEIR PAPERS.", at=44.0, until=46.7, style="big"),
+    dict(key="hit", text="YOU HIT IT. NOT TOO HARD.", at=60.25, until=63.85, style="caption"),
+    dict(key="paid", text="GET PAID. PROBABLY.", at=72.25, until=75.9, style="caption"),
+    dict(key="rules", text="RULES CHANGE.", at=80.2, until=81.9, style="caption"),
+    dict(key="word", text="WORD GETS AROUND.", at=84.2, until=87.9, style="caption"),
+    dict(key="studio", text="FROM BEDSHEET TO STUDIO.", at=97.0, until=101.9, style="caption"),
+    dict(key="perfect", text="IT DOESN'T HAVE TO BE PERFECT.", at=108.0, until=111.95, style="big"),
+    dict(key="just", text="JUST...", at=113.0, until=115.85, style="big"),
+    dict(key="wishlist", text="WISHLIST ON STEAM", at=120.0, until=128.0, style="end"),
 ]
 
 MUSIC_MAIN = [
@@ -260,10 +265,44 @@ class Take:
                 on = e["on"] == 1
         return on
 
+    def line_spans(self, speakers=None):
+        """(first frame, end frame, text) of each speech bubble, by the same timing rule as
+        Visit.Say: 1.1 s + 0.05 s per character, held 1.7-5.2 s, replaced by that speaker's next
+        line. Lines logged at frame 0 were already up when the take began, so their end is unknown
+        and they're left out. `speakers` limits it to the bubbles this view shows."""
+        by_who = {}
+        for e in self.events:
+            if e["t"] == "line" and (speakers is None or e["who"] in speakers):
+                by_who.setdefault(e["who"], []).append((e["f"], e["text"]))
+        out = []
+        for lines in by_who.values():
+            lines.sort()
+            for i, (f0, text) in enumerate(lines):
+                f1 = f0 + int(max(1.7, min(5.2, 1.1 + len(text) * 0.05)) * FPS)
+                if i + 1 < len(lines):
+                    f1 = min(f1, lines[i + 1][0])
+                if f0 > 0:
+                    out.append((f0, f1, text))
+        return sorted(out)
+
 
 # ====================================================================== text
 def font(name, size):
     return ImageFont.truetype(os.path.join(FONTS, name), size)
+
+
+def card_font(style):
+    """(font, font-pixel size, padding, border) for a text style. English and Turkish set every card
+    in the game's own fonts; Chinese, Japanese and Korean use the locale's 12 px pixel font at the
+    same pixel scales (one font pixel = 8, 5 or 4 screen pixels)."""
+    cjk = LOC["font"] if LOC else None
+    if style == "big":
+        return (ImageFont.truetype(cjk, 96) if cjk else font("LegitStamp.ttf", 96)), 8, (40, 28), 8
+    if style in ("end", "tag"):
+        return (ImageFont.truetype(cjk, 60) if cjk else font("LegitStamp.ttf", 60)), 5, (30, 20), 0
+    if style == "sub":
+        return (ImageFont.truetype(cjk, 48) if cjk else font("LegitPixel.ttf", 48)), 4, (20, 10), 0
+    return (ImageFont.truetype(cjk, 60) if cjk else font("LegitPixel.ttf", 60)), 5, (25, 15), 0
 
 
 def crisp(img):
@@ -277,15 +316,12 @@ class Card:
     def __init__(self, spec):
         self.spec = spec
         self.text = spec["text"]
+        if LOC and spec.get("key") in LOC["cards"]:
+            self.text = LOC["cards"][spec["key"]]
         self.style = spec["style"]
         self.f0 = beat_f(spec["at"])
         self.f1 = beat_f(spec["until"])
-        if self.style == "big":
-            fnt, px, pad, border = font("LegitStamp.ttf", 96), 8, (40, 28), 8
-        elif self.style == "end":
-            fnt, px, pad, border = font("LegitStamp.ttf", 60), 5, (30, 20), 0
-        else:
-            fnt, px, pad, border = font("LegitPixel.ttf", 60), 5, (25, 15), 0
+        fnt, px, pad, border = card_font(self.style)
         self.px = px
         bbox = fnt.getbbox(self.text)
         tw, th = bbox[2], bbox[3] - bbox[1]
@@ -294,7 +330,7 @@ class Card:
         bh += (-bh) % 4
         plate = Image.new("RGBA", (bw, bh), (0, 0, 0, 0))
         d = ImageDraw.Draw(plate)
-        alpha = 0 if self.style == "end" else (226 if self.style == "big" else 214)
+        alpha = 0 if self.style in ("end", "tag") else (226 if self.style == "big" else 214)
         d.rectangle([0, 0, bw - 1, bh - 1], fill=INK + (alpha,))
         if border:
             d.rectangle([0, 0, bw - 1, bh - 1], outline=RED + (255,), width=border)
@@ -317,10 +353,12 @@ class Card:
             self.pos = ((W - bw) // 2 // 4 * 4, (H - bh) // 2 // 4 * 4)
         elif self.style == "end":
             self.pos = ((W - bw) // 2 // 4 * 4, 760)
+        elif self.style == "tag":
+            self.pos = ((W - bw) // 2 // 4 * 4, 628)     # under the logo, above WISHLIST
         else:
             self.pos = ((W - bw) // 2 // 4 * 4, 936)
-        self.typing = self.style in ("caption", "end")
-        self.cps = 26.0
+        self.typing = self.style in ("caption", "end", "tag")
+        self.cps = LOC["cps"] if LOC else 26.0
 
     def chars_at(self, f):
         return int((f - self.f0) / FPS * self.cps) + 1
@@ -354,9 +392,10 @@ class Card:
             if n < len(self.text):
                 cut = self.char_x[n - 1] if n > 0 else self.text_x0
                 img = img.copy()
-                img[:, cut:, 3] = np.where(img[:, cut:, 3] > 0, np.minimum(img[:, cut:, 3], 0 if self.style == "end" else 214), 0)
+                plateless = self.style in ("end", "tag")
+                img[:, cut:, 3] = np.where(img[:, cut:, 3] > 0, np.minimum(img[:, cut:, 3], 0 if plateless else 214), 0)
                 # hide the not-yet-typed glyphs but keep the plate
-                if self.style != "end":
+                if not plateless:
                     plate_rgb = np.array(INK, np.uint8)
                     mask = img[:, cut:, 3] > 0
                     img[:, cut:, :3][mask] = plate_rgb
@@ -364,6 +403,125 @@ class Card:
         if left < 4:
             a = left / 4.0
         blend(frame, img, x, y, a)
+
+
+def wrap_text(text, fnt, max_w):
+    """One line, or two: after a sentence if both halves fit, else at the space or CJK punctuation
+    nearest the middle."""
+    if fnt.getlength(text) <= max_w:
+        return [text]
+    mid = len(text) / 2
+
+    def split(i):
+        return [text[:i].rstrip(), text[i:].lstrip()]
+
+    ends = [i + 1 for i, ch in enumerate(text[:-1]) if ch in "。？！?!" or (ch == "." and text[i + 1] == " ")]
+    ends = [i for i in ends if all(fnt.getlength(p) <= max_w for p in split(i))]
+    if ends:
+        return split(min(ends, key=lambda k: abs(k - mid)))
+    breaks = [i + 1 for i, ch in enumerate(text[:-1]) if ch in " 。，、？！?!,."]
+    return split(min(breaks or range(1, len(text)), key=lambda k: abs(k - mid)))
+
+
+class Subtitles:
+    """Localized versions keep the game's English speech bubbles in the picture, so they put the
+    translated line at the bottom while its bubble is up. Pieces of one line split by a cut merge
+    into one subtitle; a line on screen for less than half a second gets none. When a caption card
+    is up at the same time, the subtitle sits just above it."""
+    MIN_FRAMES = 30
+    # Whose bubbles each view shows (default: everyone in the shop). The camera only shows the
+    # person on the stool; the computer screen covers the shop. Update if the takes are recaptured.
+    SHOWN = {"photo": {"SAMIR"}, "camera_t3": {"KARIM"}, "editor": set(), "os_t3": set(), "news": set()}
+
+    def __init__(self, takes, lines, cards):
+        spans = []
+        for seg in EDL:
+            take = takes[seg["take"]]
+            f_in = int(round(seg["t"] * FPS))
+            f_out = f_in + seg["beats"] * FPB
+            base = beat_f(seg["beat"])
+            for f0, f1, text in take.line_spans(self.SHOWN.get(seg["take"])):
+                a, b = max(f0, f_in), min(f1, f_out)
+                if b > a:
+                    spans.append([base + a - f_in, base + b - f_in, text])
+        spans.sort()
+        merged = []
+        for s in spans:
+            if merged and merged[-1][2] == s[2] and s[0] - merged[-1][1] <= 2:
+                merged[-1][1] = max(merged[-1][1], s[1])
+            else:
+                merged.append(s)
+        fnt, px, pad, _ = card_font("sub")
+        captions = [c for c in cards if c.style == "caption"]
+        self.items = []
+        for f0, f1, text in merged:
+            if f1 - f0 < self.MIN_FRAMES:
+                continue
+            if text not in lines:
+                raise KeyError(f"{LOC['name']}: no translation for the line {text!r} (add it to locales.py)")
+            img = self.plate(lines[text], fnt, px, pad)
+            h, w = img.shape[:2]
+            y = (H - 56 - h) // 4 * 4
+            for c in captions:
+                if c.f0 < f1 and f0 < c.f1:
+                    y = min(y, (c.pos[1] - 16 - h) // 4 * 4)
+            self.items.append((f0, f1, img, (W - w) // 2 // 4 * 4, y, text))
+
+    @staticmethod
+    def plate(text, fnt, px, pad):
+        rows = wrap_text(text, fnt, W - 360)
+        boxes = [fnt.getbbox(r) for r in rows]
+        top, bottom = min(b[1] for b in boxes), max(b[3] for b in boxes)
+        pitch = bottom - top + 3 * px
+        tw = max(b[2] for b in boxes)
+        bw = tw + 2 * pad[0] + px
+        bh = (bottom - top) + pitch * (len(rows) - 1) + 2 * pad[1] + px
+        bw += (-bw) % 4
+        bh += (-bh) % 4
+        plate = Image.new("RGBA", (bw, bh), INK + (196,))
+        txt = Image.new("RGBA", (bw, bh), (0, 0, 0, 0))
+        td = ImageDraw.Draw(txt)
+        for i, (r, b) in enumerate(zip(rows, boxes)):
+            ox = (bw - px - b[2]) // 2
+            oy = pad[1] - top + i * pitch
+            td.text((ox + px, oy + px), r, font=fnt, fill=(0, 0, 0, 255))
+            td.text((ox, oy), r, font=fnt, fill=CREAM + (255,))
+        txt_a = crisp(txt)
+        base = np.array(plate).astype(np.float32)
+        ta = txt_a[..., 3:4].astype(np.float32) / 255.0
+        base[..., :3] = base[..., :3] * (1 - ta) + txt_a[..., :3] * ta
+        base[..., 3:4] = np.maximum(base[..., 3:4], txt_a[..., 3:4])
+        return base.astype(np.uint8)
+
+    def draw(self, frame, f):
+        for f0, f1, img, x, y, _ in self.items:
+            if f0 <= f < f1:
+                blend(frame, img, x, y, min(1.0, (f - f0 + 1) / 3.0, (f1 - f) / 3.0))
+
+
+def check_glyphs(cards, lines):
+    """Pillow draws a missing character as an empty box, so make sure the fonts cover every string."""
+    try:
+        from fontTools.ttLib import TTFont
+    except ImportError:
+        print("  (fontTools not installed: glyph coverage not checked)")
+        return
+    cmaps = {}
+
+    def covers(fnt, text):
+        path = fnt.path
+        if path not in cmaps:
+            cmaps[path] = set(TTFont(path, fontNumber=0).getBestCmap())
+        return [ch for ch in text if not ch.isspace() and ord(ch) not in cmaps[path]]
+
+    missing = []
+    for c in cards:
+        missing += [(c.text, ch) for ch in covers(card_font(c.style)[0], c.text)]
+    sub = card_font("sub")[0]
+    for text in lines.values():
+        missing += [(text, ch) for ch in covers(sub, text)]
+    if missing:
+        raise SystemExit("missing glyphs: " + "; ".join(f"{ch!r} in {t!r}" for t, ch in missing))
 
 
 def blend(frame, img, x, y, alpha=1.0):
@@ -561,7 +719,7 @@ def flash_frames(seg, take):
     return out
 
 
-def render_video(takes, logo, studio, cards, path, preview=None):
+def render_video(takes, logo, studio, cards, path, preview=None, subs=None):
     total = beat_f(TOTAL_BEATS) + int(TAIL * FPS)
     enc = None
     if preview is None:
@@ -604,6 +762,8 @@ def render_video(takes, logo, studio, cards, path, preview=None):
             studio.draw_end(fr, f)
             for c in cards:
                 c.draw(fr, f)
+            if subs:
+                subs.draw(fr, f)
             fr = shift(fr, dx, dy)
             fi = seg.get("fade_in")
             if fi and k < fi:
@@ -797,7 +957,7 @@ def render_audio(takes, cards, seconds):
             mx.put("fx", sfx.stamp(sd(), big=True), t, 0.9)
         if c.typing:
             for kf in c.key_frames():
-                mx.put("fx", sfx.typewriter(sd()), kf / FPS, 0.8 if c.style == "caption" else 0.9)
+                mx.put("fx", sfx.typewriter(sd()), kf / FPS, 0.8 if c.style in ("caption", "tag") else 0.9)
     t_logo = beat_t(LOGO_AT)
     mx.put("fx", inst.boom(), t_logo, 1.0)
     mx.put("fx", sfx.stamp(sd(), big=True), t_logo, 1.25)
@@ -927,21 +1087,34 @@ def main():
     ap.add_argument("--audio-only", action="store_true")
     ap.add_argument("--uhd", action="store_true", help="also write a 3840x2160 copy (nearest-neighbour)")
     ap.add_argument("--reuse-video", action="store_true", help="keep work/trailer_video.mkv, redo sound + mux only")
+    ap.add_argument("--lang", default="en", choices=["en"] + sorted(locales.LOCALES),
+                    help="text language (default: the English original); see locales.py")
     args = ap.parse_args()
+    global LOC
+    LOC = locales.LOCALES.get(args.lang)
+    tag = "" if LOC is None else "_" + args.lang          # file suffix: legit_enough_trailer_zh-CN_1080p60.mp4
     folder = os.path.join(args.capture, "takes")
-    work = args.work or os.path.join(os.path.dirname(os.path.abspath(args.capture)), "work")
+    work = args.work or os.path.join(os.path.dirname(os.path.abspath(args.capture)), "work" + tag)
     os.makedirs(work, exist_ok=True)
     os.makedirs(args.out, exist_ok=True)
     names = sorted({s["take"] for s in EDL})
     takes = {nm: Take(folder, nm) for nm in names}
     cards = [Card(c) for c in CARDS]
+    subs = None
+    if LOC:
+        print(f"language: {LOC['name']}", flush=True)
+        cards.append(Card(dict(key="tagline", text=LOC["tagline"], at=LOGO_AT + 1.5, until=TOTAL_BEATS, style="tag")))
+        check_glyphs(cards, LOC["lines"])
+        subs = Subtitles(takes, LOC["lines"], cards)
+        for f0, f1, _, _, _, text in subs.items:
+            print(f"  subtitle {f0 / FPB:6.2f}-{f1 / FPB:6.2f}  {text}", flush=True)
     logo = Logo(os.path.join(args.capture, "art", "logo_dark.png"))
     studio = Studio()
     seconds = TOTAL_BEATS * BEAT + TAIL
 
     if args.preview:
         path = os.path.join(work, "preview.png")
-        render_video(takes, logo, studio, cards, None, preview=path)
+        render_video(takes, logo, studio, cards, None, preview=path, subs=subs)
         print("preview:", path)
         return
 
@@ -965,8 +1138,8 @@ def main():
         print("video: reusing", video, flush=True)
     else:
         print("video: compositing", flush=True)
-        render_video(takes, logo, studio, cards, video)
-    final = os.path.join(args.out, "legit_enough_trailer_1080p60.mp4")
+        render_video(takes, logo, studio, cards, video, subs=subs)
+    final = os.path.join(args.out, f"legit_enough_trailer{tag}_1080p60.mp4")
     enc = [FFMPEG, "-y", "-v", "error", "-i", video, "-i", wav,
            "-vf", "scale=out_color_matrix=bt709:out_range=tv:flags=accurate_rnd+full_chroma_int,format=yuv420p",
            "-c:v", "libx264", "-preset", "slow", "-tune", "animation", "-x264-params", "deblock=-1,-1", "-crf", "10", "-profile:v", "high",
@@ -975,7 +1148,7 @@ def main():
     print("encode:", final, flush=True)
     subprocess.run(enc, check=True)
     if args.uhd:
-        final4k = os.path.join(args.out, "legit_enough_trailer_2160p60.mp4")
+        final4k = os.path.join(args.out, f"legit_enough_trailer{tag}_2160p60.mp4")
         enc4k = [FFMPEG, "-y", "-v", "error", "-i", video, "-i", wav,
                  "-vf", "scale=3840:2160:flags=neighbor,scale=out_color_matrix=bt709:out_range=tv,format=yuv420p",
                  "-c:v", "libx264", "-preset", "medium", "-tune", "animation", "-x264-params", "deblock=-1,-1", "-crf", "14", "-profile:v", "high", "-level", "5.2",
