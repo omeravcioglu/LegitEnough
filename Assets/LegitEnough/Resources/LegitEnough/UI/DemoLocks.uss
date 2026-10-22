@@ -1,0 +1,132 @@
+/* =====================================================================
+   LEGIT ENOUGH - demo locks: what the demo shows but keeps for the full game.
+   FULL GAME stamps, padlocks and greyed flags in the handbook binder and in the
+   shop computer (HandbookView, ComputerView). The lock classes only appear in demo
+   sessions. The sections marked "(both modes)" are layout fixes for the full game too
+   (this sheet loads after Main.uss in both modes; Main.uss itself stays untouched).
+   Selectors that override Main.uss are compound, so load order doesn't matter.
+   Font sizes stay multiples of 12.
+   ===================================================================== */
+
+/* ---------------------------------------------------------------- handbook tabs */
+
+/* Twelve tabs (BASICS, ten countries, VISAS) must fit the 960px column: a little less padding and no
+   label margins. Measured on Day 1, the tallest case: 901px (Main.uss alone overflows and squeezes them). */
+.le-binder__tabs--demo .le-tab { padding: 7px 12px 9px 10px; }
+.le-binder__tabs--demo .le-tab__label { margin: 0; padding: 0; }
+.le-binder__tabs--demo .le-tab__state { margin: 2px 0 0 0; padding: 0; }
+
+/* Darker than a LOCKED tab: no amount of reputation opens these. */
+.le-tab.le-tab--fullgame { background-color: #575148; border-color: #3c372f; }
+.le-tab.le-tab--fullgame .le-tab__label { color: #c2b9a4; }
+.le-tab.le-tab--fullgame.le-tab--active { border-color: var(--le-red); }
+/* The locked flag is 16x12 (its padlock overhangs a 14x10 flag): keep the label where a flag puts it. */
+.le-tab__flag.le-tab__flag--locked { margin-right: 2px; margin-bottom: -6px; }
+/* VISAS has a padlock (27px wide at 3x) where the flags go (42px + 8px). */
+.le-tab__lock { margin: 0 15px 0 8px; }
+.le-tab__badge { margin-top: 3px; }
+
+/* ---------------------------------------------------------------- handbook: full-game page */
+
+.le-hb-lock { flex-direction: row; align-items: flex-end; margin: 4px 0 22px 0; }
+.le-hb-lock__art { margin-right: 24px; }
+.le-hb-lock__badge { margin-bottom: 2px; }
+.le-hb-lock__pitch { color: #1d1a16; font-size: 24px; margin: 18px 0 0 0; }
+.le-btn.le-hb-lock__wishlist { align-self: flex-start; margin: 30px 0 0 0; }
+
+/* ---------------------------------------------------------------- computer: locked buttons */
+
+/* Enabled on purpose (a disabled button fades the stamp to 35%): a click explains instead. */
+.le-os-btn.le-os-btn--locked {
+    flex-direction: row;
+    align-items: center;
+    background-color: #b3ab94;
+    border-top-color: #d6ceb6;
+    border-left-color: #d6ceb6;
+    border-bottom-color: #6e6752;
+    border-right-color: #6e6752;
+    padding: 3px 8px 3px 8px;
+}
+.le-os-btn.le-os-btn--locked:hover { background-color: #beb69f; }
+.le-os-lock__label {
+    -unity-font-definition: resource("LegitEnough/Fonts/LegitStamp");
+    color: #6a6352;
+    font-size: 24px;
+    margin: 0 8px 0 4px;
+    padding: 0;
+}
+.le-os-lock__padlock { margin-right: 6px; }
+
+/* ---------------------------------------------------------------- computer: template picker */
+
+/* BUY IN SHOP / FULL GAME rows: a fixed head column, then one flag tile per country. */
+.le-os-tplrow { margin-top: 2px; }
+.le-os-tplrow__head { width: 168px; flex-shrink: 0; margin-right: 6px; }
+.le-os-btn.le-os-btn--tile { padding: 4px 6px 4px 6px; }
+/* Still to buy: disabled, but readable. */
+.le-os-btn.le-os-btn--tile:disabled { opacity: 0.6; }
+
+/* ---------------------------------------------------------------- computer: shop + border watch */
+
+.le-os-shoprow--locked .le-os-text { color: #5a5446; }
+.le-os-shoprow--locked .le-os-muted { color: #7a7262; }
+.le-os-row--locked .le-os-cell { color: #7a7262; }
+/* RISK, DEMAND and JOBS collapse into one padlocked FULL GAME cell. */
+.le-os-cell.le-os-cell--locked { flex-grow: 3; flex-direction: row; align-items: center; }
+/* A greyed playable country (BUY IN SHOP / NEEDS REP): enabled so a click can say what it takes. */
+.le-os-btn.le-os-btn--tile-off { flex-direction: column; align-items: center; opacity: 0.6; }
+.le-os-tile__cap { font-size: 12px; color: var(--le-os-ink); margin: 2px 0 0 0; padding: 0; }
+.le-os-tplrow { flex-wrap: wrap; }
+/* What a rep-gated section takes, where the BUY button would be. */
+.le-os-text.le-os-needs { color: #7a7262; margin: 0 6px; flex-shrink: 0; }
+
+/* ---------------------------------------------------------------- border watch (both modes) */
+
+/* The watch scrolls (ComputerView builds it as a ScrollView): rows keep their natural height. */
+.le-os-watch .le-os-row { flex-shrink: 0; align-items: center; }
+.le-os-watch .le-os-cell { min-width: 0; }
+/* COUNTRY takes what's left; RISK fits MODERATE, DEMAND its header, JOBS the TAKING JOBS button. */
+.le-os-cell.le-os-cell--country { flex-grow: 1; margin-right: 8px; }
+/* The stamp-font header is wider than the names under it: keep COUNTRY on one line (it fits the margin). */
+.le-os-row--head .le-os-cell.le-os-cell--country { white-space: nowrap; }
+.le-os-cell.le-os-cell--risk { flex-grow: 0; flex-basis: 104px; flex-shrink: 0; }
+.le-os-cell.le-os-cell--demand { flex-grow: 0; flex-basis: 92px; flex-shrink: 0; }
+.le-os-cell.le-os-cell--jobs { flex-grow: 0; flex-basis: 180px; flex-shrink: 0; flex-direction: row; align-items: center; }
+.le-os-cell--jobs > .le-os-btn { margin: 0; }
+.le-os-cell--jobs > .le-os-muted { margin: 0; }
+/* Demo: a country that needs more reputation spans RISK, DEMAND and JOBS. */
+.le-os-cell.le-os-cell--needs { flex-grow: 0; flex-basis: 376px; flex-shrink: 0; }
+/* Demo: the five full-game countries folded into one row: flags + names, then padlock + stamp. */
+.le-os-cell.le-os-watch__more { flex-grow: 1; flex-direction: column; }
+.le-os-watch__flag { margin: 2px 8px 2px 0; }
+.le-os-watch__names { font-size: 12px; color: #7a7262; margin: 4px 0 0 0; padding: 0; }
+.le-os-cell.le-os-watch__stamp { flex-grow: 0; flex-shrink: 0; flex-basis: auto; }
+
+/* ---------------------------------------------------------------- editor (both modes) */
+
+/* Inputs fill what their row leaves instead of sizing to their text, so DOCUMENT NO. + GENERATE fit. */
+.le-os-form .le-os-input { flex-shrink: 1; flex-basis: 0; min-width: 0; }
+.le-os-form .le-os-input .unity-base-text-field__input { flex-shrink: 1; min-width: 0; overflow: hidden; }
+.le-os-btn.le-os-btn--fixed { flex-shrink: 0; }
+/* DOCUMENT NO. needs less label than DATE OF EXPIRY: the room goes to the number (12 characters). */
+.le-os-form .le-os-input--num > Label { min-width: 166px; }
+
+/* Preview page: tall enough for a two-line head, five rows of fields and the code strip (France,
+   Germany, Italy). Fixed, so PRINT doesn't jump between templates. */
+.le-os-cols .le-os-preview > .le-datapage { height: 372px; }
+/* Any page: the head and the code strip keep their size; overflowing fields clip instead of
+   running over the barcode. */
+.le-datapage > .le-datapage__head { flex-shrink: 0; }
+.le-datapage > .le-datapage__code { flex-shrink: 0; }
+.le-datapage > .le-datapage__body { overflow: hidden; }
+
+/* ---------------------------------------------------------------- handbook (both modes) */
+
+/* The tab column hugs its tabs; its backing is the binder's dark edge, so the gaps read as binder. */
+.le-binder__tabs { background-color: #16241a; }
+
+/* Demo: the sealed page facing a full-game country, and the VISAS list. */
+.le-hb__redact { height: 18px; margin-top: 6px; background-color: #1d1a16; flex-shrink: 1; }
+.le-hb-teaser__stamp { position: absolute; top: 40px; right: 44px; }
+.le-hb-flags { margin: 18px 0 0 10px; }
+.le-hb-flags__flag { margin: 0 18px 12px 0; }

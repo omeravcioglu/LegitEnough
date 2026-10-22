@@ -9,9 +9,70 @@ grimy shop on a 480x270 grid, pixel customers, a late-90s shop computer and a st
 1. Open the project in Unity 6000.0.32f1.
 2. Open any scene (the default `SampleScene` is fine) and press **Play**.
    `GameBootstrap` creates everything at runtime, so nothing needs to be placed in the scene.
-3. The title menu is the empty shop at night. **NEW BUSINESS** starts Day 1 (there are no saves yet).
+3. The title menu is the empty shop at night. **PLAY DEMO** starts Day 1 (there are no saves yet).
+   To play the full game in the Editor, tick **Legit Enough > Play Full Game in Editor** (see below).
 
 Set the Game view to 16:9 (1920x1080 or *Full HD*). The UI scales to fit any size.
+
+## Demo and full game
+
+The same code is both games. `GameRoot.DemoBuild` (a static, `true` by default) decides which
+session `GameRoot.NewGame` makes: `new GameSession(seed, GameRules.Demo())` or the plain
+`new GameSession(seed)`, which is the full game exactly as before. Everything demo-only checks
+`GameSession.IsDemo` (`Sim/Core/GameRules.cs`), so the full game's rules, random draws and
+messages don't change. The trailer rig and the store-shot harness set `DemoBuild = false`
+before their session is made; the smoke test and the player build use the demo.
+
+**Running the full game.** Never edit `DemoBuild` in source. In the Editor, tick
+**Legit Enough > Play Full Game in Editor** (`Assets/LegitEnough/Editor/FullGameToggle.cs`): it sets
+the EditorPrefs switch `LegitEnough.PlayFullGameInEditor`, which `GameRoot.Awake` reads in the Editor
+only (not in batch mode, never in a player), so the next Play starts the full game. Untick it to get
+the demo back. The batch harnesses (trailer, store shots, smoke test) set `DemoBuild` themselves.
+
+**Building the full game.** There is no full-game player build yet, on purpose: `build-demo.ps1`
+and `BuildDemo.cs` refuse to build unless `public static bool DemoBuild = true;` is in
+`Game/Boot/GameRoot.cs`, so a forgotten edit can never ship the full game as the demo. When the
+full game ships, give it its own build entry (same scene list, its own output folder) rather than
+flipping the demo's.
+
+The demo (about 15 minutes, McHunter Studio ident, then the title with a DEMO stamp):
+- **Day 1, coached.** R.'s sticky notes and a pointer (`Game/Tutorial/TutorialCoach.cs`) walk
+  through Samir's France passport: read the mail, open the sign, haggle once, the photo (handbook
+  photo page, backdrop, glasses, zoom, shutter, crop, keep), the editor, print, the scripted
+  jam (hit the printer), bind, check, hand over, take the cash, close early. SKIP TUTORIAL or
+  hints off (F1, Settings) hands over to the hint line.
+- **Day 2, scripted** (`Sim/Content/DemoCast.cs`, `Sim/GameSession.Demo.cs`): Turkey is a gift,
+  R.'s note, fixed news (France changes its photo rules, so the handbook is OUTDATED; an
+  equipment sale), Samir's outcome, then four visitors, timed from when the sign flips (these
+  times assume 09:00): Elif (Turkey, 09:05), Kenji (Japan, 09:45: the FULL GAME teaser), Viktor
+  (an urgent France job, 10:20, due four hours later) and Anja (Germany, 11:30: only if you own
+  the Germany section; buying it while she waits gets you the job). R. says close up when they're done.
+- After the Day-2 report, **FINISH DEMO** opens the thank-you screen (stats, what the full
+  game adds, WISHLIST ON STEAM, PLAY AGAIN, QUIT). There is no Day 3.
+- Five countries play (France, Turkey, Germany, Italy, United States). United Kingdom, Japan,
+  South Korea, UAE, Iran, visas and tier-3 equipment are shown locked with a FULL GAME stamp;
+  clicking one says so.
+- Dev keys (F5, F6, F9) only exist in the Editor and development builds.
+
+## Build the demo
+
+```
+powershell -ExecutionPolicy Bypass -File Tools/Build/build-demo.ps1
+```
+
+Copies the project to a throwaway folder (default `%TEMP%\LegitEnoughBuild`, reused so later
+builds skip the full import), runs batch-mode Unity there with
+`Assets/LegitEnough/Editor/BuildDemo.cs` (`BuildPipeline.BuildPlayer`, Windows x64, Mono,
+scene list given explicitly: `Assets/Scenes/SampleScene.unity`) and writes the player to
+`Builds/LegitEnoughDemo/Legit Enough.exe` under the project root (outside Assets). The same
+build is on the Editor menu: **Legit Enough > Build Demo (Windows x64)**. Player settings:
+company McHunter Studio, product Legit Enough, version 0.9.0, no Unity splash (the game shows
+its own studio ident). Options: `-Out <folder>`, `-Work <folder>`, `-TimeoutMinutes <n>`.
+The exe's icon is the store icon: BuildDemo pulls every hand-drawn size (16-256 px) out of
+`Steam/store/client_icon.ico`, imports them into the build copy as point-filtered, uncompressed
+textures and sets them as the Standalone icons (each slot gets the matching or next larger size),
+then puts the project's icon settings back. The script exits 4 without building when
+`GameRoot.DemoBuild` isn't `true` in source or the icon file is missing.
 
 ### Controls
 
@@ -31,7 +92,7 @@ Set the Game view to 16:9 (1920x1080 or *Full HD*). The UI scales to fit any siz
 | Handbook | **H** |
 | Hints | **F1** |
 | Back / pause | **ESC** |
-| Dev | **F5** spawn a walk-in, **F6** +30 game minutes |
+| Dev (Editor / development builds only) | **F5** spawn a walk-in, **F6** +30 game minutes, **F9** customer lineup |
 
 ## Architecture
 
@@ -40,9 +101,11 @@ Assets/LegitEnough/
   Scripts/Sim/    LegitEnough.Sim   pure C#, noEngineReferences: ALL the rules
   Scripts/Game/   LegitEnough.Game  Unity UI Toolkit presentation
     Pixel/        software pixel renderer: room, props, lights, fonts, logo, flags, icons
-  Resources/LegitEnough/UI/      Main.uss (every UI style) + theme
+  Resources/LegitEnough/UI/      Main.uss (every UI style) + theme; DemoBoot/DemoLocks/DemoTutorial.uss (demo screens)
   Resources/LegitEnough/Fonts/   LegitPixel.ttf (body) + LegitStamp.ttf (headings)
+  Editor/         LegitEnough.Editor  the player build script (editor only)
 Tools/SimTests/   offline test runner + compile checks + batch-mode Unity smoke test
+Tools/Build/      build-demo.ps1: the Windows player build on a throwaway copy
 Tools/ArtGen/     Node: the pixel fonts (fonts.js) and the visual-direction concept art (build.js)
 ```
 
@@ -102,12 +165,30 @@ Every economy, timing and scoring number is in `Sim/Core/Balance.cs`. Country ru
 ## Tests
 
 ```
-powershell -ExecutionPolicy Bypass -File Tools/SimTests/run.ps1            # 18 sim tests, incl. a 20-day bot playthrough
-powershell -ExecutionPolicy Bypass -File Tools/SimTests/compile-game.ps1   # compile-check the Unity layer offline
-powershell -ExecutionPolicy Bypass -File Tools/SimTests/unity-smoke.ps1 -Out <folder>   # batch Unity on a copy: title, Day 1, Day 2, then buys all the kit and shoots the Day 100 shop at night; saves screenshots
+powershell -ExecutionPolicy Bypass -File Tools/SimTests/run.ps1            # sim tests: the full game (incl. a 20-day bot) and the demo (Demo_*)
+powershell -ExecutionPolicy Bypass -File Tools/SimTests/compile-game.ps1   # compile-check Sim+Game offline, then SmokeTest, StoreShots and the Editor scripts
+powershell -ExecutionPolicy Bypass -File Tools/SimTests/unity-smoke.ps1 -Out <folder>   # batch Unity on a copy: plays the whole demo, saves screenshots
 ```
 
 All three use Unity's bundled compiler and runtime. Nothing else needs installing.
+
+The smoke test (`Tools/SimTests/UnitySmoke/SmokeTest.cs`, about 10 minutes) plays the DEMO
+through public APIs and the named UI elements (buttons get a submit event, shop hit areas a
+click): title, credits, settings, the studio splash (opened by hand; batch mode skips it), the
+coached Day 1 with Samir (the sign refuses to close before he comes, haggle, photo, editor with
+the locked templates and VISA, print, the scripted jam, bind, hand over, cash, close early), the
+Day-2 card (Samir's verdict follows his passport's quality) and mail, Border Watch (FULL GAME
+flags; Turkey switched off) and SHOP (50% sale, tier 3, locked handbooks, visa license), the
+France update, the handbook's FULL GAME pages, VISAS tab and unowned sections, pause and
+settings, then the Day-2 visitors with their times checked against the opening: Elif turned
+away until Turkey is taken again, Kenji's Japan teaser, Viktor's rush job (due four hours
+after he walks in; shot on the old light-gray background first, so FIX IT sends him back to the
+stool for a white one), the focus-loss pause, Anja turned away until Germany is bought while
+she waits, then the Day-2 report, FINISH DEMO and the demo-end epilogue. While one job runs,
+the next visitor due is moved back a little so the script can do one job at a time (logged as
+`hold:`). Screenshots are numbered in
+script order in `<folder>/shots`, with `log.txt` and `errors.txt`. Any error-level log, failed
+check or timeout fails the run (exit 1, or 3 for a Unity timeout).
 
 ## Fonts and concept art
 

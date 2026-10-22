@@ -23,6 +23,8 @@ namespace LegitEnoughCI
             TrailerRig.Only = Environment.GetEnvironmentVariable("LE_TRAILER_ONLY");
             Directory.CreateDirectory(TrailerRig.Out);
             TrailerRig.Exit = code => EditorApplication.Exit(code);
+            // The trailer films the full game: no demo session, not even the one made at boot.
+            LegitEnough.Game.GameRoot.DemoBuild = false;
             EditorApplication.playModeStateChanged += s =>
             {
                 if (s == PlayModeStateChange.EnteredPlayMode && UnityEngine.Object.FindFirstObjectByType<TrailerRig>() == null)

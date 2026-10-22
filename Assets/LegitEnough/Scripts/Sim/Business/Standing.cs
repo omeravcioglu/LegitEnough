@@ -96,8 +96,13 @@ namespace LegitEnough.Sim
         public int JobsDone;
         public int LastRuleChangeDay = -100;
         public string LastRuleChange = "";
+        /// <summary>Demo only: visible but locked ("FULL GAME"). Never requested, sold or in the news.</summary>
+        public bool FullGameOnly;
 
         public string Id => Spec.Id;
+
+        /// <summary>Playable at this reputation: customers may ask for it, news may cover it, its handbook is for sale.</summary>
+        public bool Requestable(float rep) => !FullGameOnly && (Owned || rep >= Spec.UnlockReputation);
 
         public float Demand(int day) => day <= PriceMultiplierUntilDay ? PriceMultiplier : 1f;
 

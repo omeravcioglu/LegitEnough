@@ -15,6 +15,8 @@ namespace LegitEnough.Game
     {
         const float VfX = 150f, VfY = 90f, VfW = 660f, VfH = 880f;
         const float StepPixels = 38f;
+        /// <summary>Kept photos shown in the panel (newest first).</summary>
+        const int MaxKeptShown = 4;
 
         enum DragMode { None, Head, Body, Pan }
 
@@ -54,7 +56,9 @@ namespace LegitEnough.Game
             _session = S.ActivePhoto;
 
             // ---------------- viewfinder
+            // Controls carry names (cam-*) so the tutorial coach can point at them.
             var vfBox = Ui.El("le-viewfinder", Root).At(VfX - 14f, VfY - 14f, VfW + 28f, VfH + 28f);
+            vfBox.name = "cam-viewfinder";
             _vf = new PortraitView("le-viewfinder__image") { Live = _session };
             _vf.At(14f, 14f, VfW, VfH);
             vfBox.Add(_vf);
@@ -95,13 +99,14 @@ namespace LegitEnough.Game
                 var bb = b;
                 var btn = Ui.Btn(Labels.Of(b), () => _session.PullBackdrop(bb), "le-btn--swatch", _swatches);
                 btn.style.backgroundColor = Looks.Of(b);
+                btn.name = "cam-backdrop-" + b;
                 _swatchButtons[b] = btn;
             }
 
             Ui.Text("FRAMING", "le-cam-panel__section", panel);
             var framing = Ui.El("le-row", panel);
-            Ui.Btn("ZOOM -", () => _session.ZoomBy(-0.25f), "le-btn--small", framing);
-            Ui.Btn("ZOOM +", () => _session.ZoomBy(0.25f), "le-btn--small", framing);
+            Ui.Btn("ZOOM -", () => _session.ZoomBy(-0.25f), "le-btn--small", framing).name = "cam-zoom-out";
+            Ui.Btn("ZOOM +", () => _session.ZoomBy(0.25f), "le-btn--small", framing).name = "cam-zoom-in";
             Ui.Btn("▲", () => _session.PanBy(0f, -0.08f), "le-btn--small le-btn--icon", framing);
             Ui.Btn("▼", () => _session.PanBy(0f, 0.08f), "le-btn--small le-btn--icon", framing);
             Ui.Btn("◀", () => _session.PanBy(-0.08f, 0f), "le-btn--small le-btn--icon", framing);
@@ -116,24 +121,28 @@ namespace LegitEnough.Game
 
             Ui.Text("SAY", "le-cam-panel__section", panel);
             var say1 = Ui.El("le-row le-row--wrap", panel);
-            Ui.Btn("LOOK AT THE CAMERA", () => Say(PhotoCommand.LookAtCamera), "le-btn--say", say1);
+            Ui.Btn("LOOK AT THE CAMERA", () => Say(PhotoCommand.LookAtCamera), "le-btn--say", say1).name = "cam-look";
             _faceBtn = Ui.Btn("STOP SMILING", () => Say(PhotoCommand.NeutralFace), "le-btn--say", say1);
+            _faceBtn.name = "cam-face";
             _eyesBtn = Ui.Btn("OPEN YOUR EYES", () => Say(PhotoCommand.OpenEyes), "le-btn--say", say1);
-            Ui.Btn("HOLD STILL", () => Say(PhotoCommand.HoldStill), "le-btn--say", say1);
+            _eyesBtn.name = "cam-eyes";
+            Ui.Btn("HOLD STILL", () => Say(PhotoCommand.HoldStill), "le-btn--say", say1).name = "cam-hold";
             _glassesBtn = Ui.Btn("GLASSES OFF", () => Say(PhotoCommand.RemoveGlasses), "le-btn--say", say1);
+            _glassesBtn.name = "cam-glasses";
             _hatBtn = Ui.Btn("HAT OFF", () => Say(PhotoCommand.RemoveHat), "le-btn--say", say1);
+            _hatBtn.name = "cam-hat";
 
             var shutterRow = Ui.El("le-row le-row--center le-cam-panel__shutter-row", panel);
-            Ui.Btn("SHUTTER", Shutter, "le-shutter", shutterRow);
+            Ui.Btn("SHUTTER", Shutter, "le-shutter", shutterRow).name = "cam-shutter";
             Ui.Text("(SPACE)", "le-muted", shutterRow);
 
             Ui.Text("KEPT PHOTOS", "le-cam-panel__section", panel);
             _kept = Ui.El("le-row le-cam-panel__kept", panel);
 
             var bottom = Ui.El("le-row le-row--end le-cam-panel__bottom", panel);
-            Ui.Btn("HANDBOOK (H)", () => Game.ToggleHandbook(order?.CountryId), "le-btn--ghost", bottom);
-            Ui.Btn("STEP AWAY (ESC)", Close, "le-btn--ghost", bottom);
-            Ui.Btn("DONE - THANK YOU", Done, "le-btn--primary", bottom);
+            Ui.Btn("HANDBOOK (H)", () => Game.ToggleHandbook(order?.CountryId), "le-btn--ghost", bottom).name = "cam-handbook";
+            Ui.Btn("STEP AWAY (ESC)", Close, "le-btn--ghost", bottom).name = "cam-away";
+            Ui.Btn("DONE - THANK YOU", Done, "le-btn--primary", bottom).name = "cam-done";
         }
 
         void Say(PhotoCommand cmd)
@@ -219,12 +228,24 @@ namespace LegitEnough.Game
                 _keptKey = keptKey;
                 _kept.Clear();
                 if (kept.Count == 0) Ui.Text("none yet", "le-muted", _kept);
-                foreach (var k in kept)
+                // Newest first; a few at most, so retakes never push the row off the panel.
+                int shown = 0;
+                for (int i = kept.Count - 1; i >= 0 && shown < MaxKeptShown; i--, shown++)
                 {
+                    var k = kept[i];
                     var thumb = new PortraitView("le-thumb") { Capture = k };
                     thumb.pickingMode = PickingMode.Ignore;
                     _kept.Add(thumb);
                     thumb.View = k.Crop;
+                }
+                if (kept.Count > 0)
+                {
+                    string more = kept.Count > MaxKeptShown ? $"+{kept.Count - MaxKeptShown} older. " : "";
+                    var note = Ui.Text(more + (_visit.Retake
+                            ? "The editor on the computer lets you pick which photo goes in."
+                            : "Not happy with it later? Click the photo corner to call them back."),
+                        "le-muted le-cam-panel__retake", _kept);
+                    note.name = "cam-retake-note";
                 }
             }
         }

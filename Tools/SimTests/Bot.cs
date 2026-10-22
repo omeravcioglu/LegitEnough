@@ -38,7 +38,7 @@ namespace LegitEnough.SimTests
         }
 
         /// <summary>Does everything a careful player does at the photo station. Returns the kept photo.</summary>
-        public static PhotoCapture TakeGoodPhoto(GameSession s, Visit v, bool careful = true)
+        public static PhotoCapture TakeGoodPhoto(GameSession s, Visit v, bool careful = true, Backdrop? backdrop = null)
         {
             var session = s.BeginPhotoSession(v.Id);
             Assert.True(session != null, "photo session should start");
@@ -51,7 +51,7 @@ namespace LegitEnough.SimTests
                 while (subj.HasGlasses && (!rules.GlassesAllowed || subj.WearingSunglasses) && guard++ < 4)
                     subj.Command(PhotoCommand.RemoveGlasses);
                 if (subj.HatOn && !rules.HeadwearAllowed) subj.Command(PhotoCommand.RemoveHat);
-                session.PullBackdrop(rules.Backdrop);
+                session.PullBackdrop(backdrop ?? rules.Backdrop);
                 TickUntil(s, () => !session.Rig.SwappingBackdrop, 10f, "backdrop swap");
                 while (session.Rig.Zoom < s.Camera.MaxZoom) session.ZoomBy(0.25f);
             }

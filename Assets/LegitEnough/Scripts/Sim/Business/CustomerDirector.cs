@@ -49,6 +49,14 @@ namespace LegitEnough.Sim
             Add(a);
         }
 
+        /// <summary>Moves an arrival to a new time (the demo's schedule follows the opening time).</summary>
+        public void Reschedule(ScheduledArrival a, GameTime at)
+        {
+            if (!_arrivals.Remove(a)) return;
+            a.At = at;
+            Add(a);
+        }
+
         /// <summary>Drops arrivals that can no longer happen today (shop closed).</summary>
         public void DropNewJobsBefore(GameTime cutoff)
         {

@@ -61,6 +61,21 @@ namespace LegitEnough.Game
 
         public ShopRenderer Renderer => _renderer;
 
+        /// <summary>The "another photo?" question is up (the tutorial coach says yes to it).</summary>
+        public bool AskingRetake => _retakeAsk != null && _game.Top == _retakeAsk;
+
+        ConfirmView _retakeAsk;
+
+        /// <summary>
+        /// A desk booklet's element name: "booklet-{order}" for an order's first booklet on the desk,
+        /// "booklet-{order}-{doc}" for any later copy (a reprint with a new photo), so each can be found.
+        /// </summary>
+        public static string BookletName(GameSession s, FinishedDocument d)
+        {
+            var first = s.DeskDocuments.Find(x => x.OrderId == d.OrderId);
+            return first == null || first == d ? "booklet-" + d.OrderId : "booklet-" + d.OrderId + "-" + d.Id;
+        }
+
         public ShopView(GameRoot game, VisualElement stage)
         {
             _game = game;
@@ -72,9 +87,10 @@ namespace LegitEnough.Game
             room.pickingMode = PickingMode.Ignore;
             _renderer.AddBackLayers(room);
 
-            _sign = Hit(room, 684, 248, 156, 56, "Door sign: OPEN / CLOSED");
+            // Click targets carry names so the tutorial coach can point at them.
+            _sign = Hit(room, 684, 248, 156, 56, "Door sign: OPEN / CLOSED", "hit-sign");
             _sign.RegisterCallback<ClickEvent>(_ => OnSignClicked());
-            var photoHit = Hit(room, 1452, 90, 420, 560, "Photo station");
+            var photoHit = Hit(room, 1452, 90, 420, 560, "Photo station", "hit-photo");
             photoHit.RegisterCallback<ClickEvent>(_ => OnPhotoCornerClicked());
 
             // ---------------- actors
@@ -86,28 +102,33 @@ namespace LegitEnough.Game
             front.pickingMode = PickingMode.Ignore;
             _renderer.AddFrontLayers(front);
 
-            var tripod = Hit(_root, 1452, 464, 156, 236, "Camera");
+            var tripod = Hit(_root, 1452, 464, 156, 236, "Camera", "hit-tripod");
             tripod.RegisterCallback<ClickEvent>(_ => OnPhotoCornerClicked());
-            var crt = Hit(_root, 24, 776, 412, 300, "Computer (orders, messages, Official-ish editor)");
+            var crt = Hit(_root, 24, 776, 412, 300, "Computer (orders, messages, Official-ish editor)", "hit-crt");
             crt.RegisterCallback<ClickEvent>(_ => _game.OpenComputer());
-            var binder = Hit(_root, 448, 800, 248, 268, "Country handbook (H)");
+            var binder = Hit(_root, 448, 800, 248, 268, "Country handbook (H)", "hit-binder");
             binder.RegisterCallback<ClickEvent>(_ => _game.ToggleHandbook());
-            var printer = Hit(_root, 1364, 772, 292, 228, "Printer");
+            var printer = Hit(_root, 1364, 772, 292, 228, "Printer", "hit-printer");
             printer.RegisterCallback<ClickEvent>(_ => OnPrinterClicked());
 
             _counterCash = Ui.El("le-counter-cash", _root).At(1120, 640, 600, 70);
             _counterCash.pickingMode = PickingMode.Ignore;
+            _counterCash.name = "hit-cash";
             _sheets = Ui.El("le-sheets", _root).At(700, 808, 368, 268);
             _sheets.pickingMode = PickingMode.Ignore;
+            _sheets.name = "hit-sheets";
             _booklets = Ui.El("le-booklets", _root).At(1072, 808, 280, 268);
             _booklets.pickingMode = PickingMode.Ignore;
+            _booklets.name = "hit-booklets";
             _tray = Ui.El("le-tray", _root).At(1368, 996, 288, 76);
             _tray.pickingMode = PickingMode.Ignore;
+            _tray.name = "hit-tray";
 
             // ---------------- floating UI
             _bubbles = Ui.El("le-bubbles", _root).At(0, 0, GameRoot.StageWidth, GameRoot.StageHeight);
             _bubbles.pickingMode = PickingMode.Ignore;
             _choices = Ui.El("le-choices", _root).At(1150, 280, 520, -1);
+            _choices.name = "choices";
             _choices.Show(false);
 
             _hint = Ui.Text("", "le-hint", _root).At(16, 700);
@@ -119,9 +140,10 @@ namespace LegitEnough.Game
         }
 
         /// <summary>An invisible click target over something drawn in the pixel art.</summary>
-        static VisualElement Hit(VisualElement parent, float x, float y, float w, float h, string tip)
+        static VisualElement Hit(VisualElement parent, float x, float y, float w, float h, string tip, string name)
         {
             var e = Ui.El("le-hit", parent).At(x, y, w, h);
+            e.name = name;
             if (tip.Length > 0) e.tooltip = tip;
             else e.pickingMode = PickingMode.Ignore;
             return e;
@@ -268,6 +290,7 @@ namespace LegitEnough.Game
                 var visitId = chooser.Id;
                 var choiceId = c.Id;
                 var b = Ui.Btn(c.Text, () => S.Choose(visitId, choiceId), "le-btn--choice", _choices);
+                b.name = "choice-" + c.Id; // the tutorial coach points at single replies
                 b.SetEnabled(c.Enabled);
             }
         }
@@ -317,15 +340,16 @@ namespace LegitEnough.Game
                 {
                     var customer = S.Customer(o.CustomerId);
                     var buf = new PixelBuffer(27, 31);
-                    DeskSprites.Sheet(buf, o.Id, customer.Identity.Surname, S.Country(o.CountryId).Spec.Name);
+                    DeskSprites.Sheet(buf, o.Id, customer.Identity.Surname, DeskSprites.SheetCountry(S.Country(o.CountryId).Spec));
                     var sheet = Sprite(_sheets, (i % 3) * 120, (i / 3) * 132 + (i % 2) * 8, buf, "le-sheet");
+                    sheet.name = "sheet-" + o.Id;
                     var orderId = o.Id;
                     sheet.RegisterCallback<ClickEvent>(_ =>
                     {
                         Sfx.Play(SfxId.Paper, 0.7f);
                         _game.Open(new SlipView(_game, orderId));
                     });
-                    sheet.tooltip = $"Client sheet #{o.Id}: {customer.Identity.Surname} - click to read";
+                    sheet.tooltip = $"Client sheet #{o.Id}: {customer.Identity.Surname} ({S.Country(o.CountryId).Spec.Name}) - click to read";
                     if (++i >= 6) break;
                 }
             }
@@ -344,6 +368,7 @@ namespace LegitEnough.Game
                     var buf = new PixelBuffer(19, 28);
                     DeskSprites.Booklet(buf, Looks.Of(d.BookletCover), d.OrderId);
                     var el = Sprite(_booklets, (i % 3) * 84, (i / 3) * 124, buf, "le-booklet");
+                    el.name = BookletName(S, d);
                     var owner = S.Orders.Get(d.OrderId);
                     string name = owner != null ? S.Customer(owner.CustomerId).Identity.Surname : "?";
                     el.tooltip = $"Booklet #{d.OrderId} ({name}): click to inspect, drag to a customer to hand it over";
@@ -371,6 +396,7 @@ namespace LegitEnough.Game
                     var buf = new PixelBuffer(13, 17);
                     DeskSprites.TrayPage(buf, page.OrderId);
                     var el = Sprite(_tray, 8 + i * 52, 0, buf, "le-tray-page");
+                    el.name = "page-" + page.OrderId;
                     var pageId = page.Id;
                     el.RegisterCallback<ClickEvent>(_ => _game.Open(new PrintMenu(_game, pageId)));
                     el.tooltip = $"Printed data page #{page.OrderId} - click to bind, inspect or shred";
@@ -392,6 +418,7 @@ namespace LegitEnough.Game
                     var buf = new PixelBuffer(34, 14);
                     DeskSprites.Cash(buf, c.Amount, c.Id);
                     var el = Sprite(_counterCash, i * 152, 0, buf, "le-cash");
+                    el.name = "cash-" + c.Id;
                     var id = c.Id;
                     el.RegisterCallback<ClickEvent>(_ => S.CollectCash(id));
                     el.tooltip = $"{Labels.Money(c.Amount)} - click to put it in the cash box";
@@ -403,7 +430,11 @@ namespace LegitEnough.Game
 
         void SyncHint()
         {
-            string hint = _game.ShowHints && S.Day <= 3 && _game.Find<TitleView>() == null ? HintText() : "";
+            // The guided Day 1 of the demo talks for itself; the corner hint stays quiet meanwhile.
+            // It also hides under any open screen (title, cards, computer, papers...): it's about the
+            // shop, and only half of it would show past the screen's edge anyway.
+            bool coaching = TutorialCoach.IsActiveFor(_game);
+            string hint = _game.ShowHints && S.Day <= 3 && _game.Top == null && !coaching ? HintText() : "";
             _hint.SetTextIfChanged(hint);
             _hint.Show(hint.Length > 0);
         }
@@ -411,26 +442,87 @@ namespace LegitEnough.Game
         string HintText()
         {
             if (S.Phase == DayPhase.Morning)
+            {
+                var stale = S.IsDemo && S.Inbox.Unread == 0 ? OutdatedHandbook() : null;
+                if (stale != null)
+                    return $"{stale.Spec.Name} changed its rules: your handbook is OUTDATED. Click the COMPUTER, then SHOP to update it. Then flip the door sign to OPEN.";
                 return S.Inbox.Unread > 0 ? "Check the computer: you have messages. Then click the door sign to OPEN the shop." : "Click the door sign to OPEN the shop.";
+            }
             if (S.CounterCash.Count > 0) return "Click the cash on the counter to put it away.";
             foreach (var v in S.Visits)
             {
-                if (v.Phase == VisitPhase.Choosing) return "Pick a reply. (Click a speech bubble to skip a line.)";
+                if (v.Phase == VisitPhase.Choosing) return S.IsDemo ? DemoChoiceHint(v) : "Pick a reply. (Click a speech bubble to skip a line.)";
                 if (v.Phase == VisitPhase.PhotoSitting && !v.Moving)
-                    return S.Photos.ForCustomer(v.Customer.Id).Count == 0
+                {
+                    bool none = S.Photos.ForCustomer(v.Customer.Id).Count == 0;
+                    var c = v.Order != null ? S.Country(v.Order.CountryId) : null;
+                    if (S.IsDemo && none && c != null && c.HandbookOutdated)
+                        return $"Careful: your {c.Spec.Name} handbook is OUTDATED. Click the COMPUTER, then SHOP: the update is {Labels.Money(Balance.HandbookUpdateCost)}. The NEWS says what changed.";
+                    return none
                         ? "Click the camera to photograph them. Check the HANDBOOK (H) for the photo rules first."
-                        : "Photo kept. Open the camera and press DONE when you're finished.";
+                        : "Photo kept. Press DONE in the camera when you're finished. Not happy later? Click the photo corner to call them back.";
+                }
                 if (v.Phase == VisitPhase.AwaitingHandover) return "Drag their booklet from the desk onto them.";
                 if (v.Phase == VisitPhase.Inspecting) return "They're looking it over...";
+                if (S.IsDemo && v.Phase == VisitPhase.Waiting && !v.Moving && v.Order != null && v.Order.Status == OrderStatus.AwaitingPhoto)
+                    return "They still need a photo. Click the photo corner to call them to the stool.";
             }
+            if (S.IsDemo && S.Printer.Jammed) return "The printer jammed. Click it. Not too hard.";
             if (S.Printer.Tray.Count > 0) return "Click the printed page in the printer tray to bind it into a booklet.";
             if (S.DeskDocuments.Count > 0) return "Inspect the booklet (click it), then drag it onto the customer.";
             foreach (var o in S.Orders.Open())
                 if (o.Status == OrderStatus.InProduction && S.Printer.Printing == null)
+                {
+                    if (S.IsDemo && o.Urgent && !S.Printer.Busy)
+                        return $"Rush job, due at {o.Deadline.Clock}. Click the COMPUTER and open OFFICIAL-ISH. Keep the client sheet handy.";
                     return "Make the document: click the COMPUTER and open OFFICIAL-ISH. Keep the client sheet handy.";
+                }
+            if (S.IsDemo && S.Printer.Busy)
+                return S.Equipment[EquipmentSlot.Printer].Tier <= 1 ? "Printing... (the old inkjet takes its time)" : "Printing...";
             if (S.Phase == DayPhase.AfterHours && S.Visits.Count == 0) return "Closing time. Click the door sign to CLOSE and end the day.";
-            if (S.Visits.Count == 0 && S.Phase == DayPhase.Open) return "Waiting for customers... (the clock on the wall is running)";
+            if (S.Visits.Count == 0 && S.Phase == DayPhase.Open)
+                return S.IsDemo && NobodyElseToday()
+                    ? "Nobody else is coming today. Click the door sign to close early."
+                    : "Waiting for customers... (the clock on the wall is running)";
             return "";
+        }
+
+        /// <summary>Demo hints at the counter: why a reply is the only one, and what a rush job means.</summary>
+        string DemoChoiceHint(Visit v)
+        {
+            var c = v.Request != null ? S.Country(v.Request.CountryId) : null;
+            bool onlyDecline = v.Choices.Count == 1 && v.Choices[0].Id == GameSession.ChoiceIds.Decline;
+            if (onlyDecline && c != null && c.FullGameOnly) return "Not this one. All you can do here is say no.";
+            if (onlyDecline && c != null && !c.Owned)
+                return c.Requestable(S.Standing.Reputation)
+                    ? $"No {c.Spec.Name} section, so no {c.Spec.Adjective} jobs. Click the COMPUTER, then SHOP: it's {Labels.Money(c.Spec.HandbookPrice)}. Then you can take this one."
+                    : $"No {c.Spec.Name} section, so no {c.Spec.Adjective} jobs. All you can do here is say no.";
+            if (onlyDecline && c != null && c.Owned && !c.AcceptingJobs)
+                return $"You switched {c.Spec.Name} off in Border Watch (computer, NEWS). Turn it back on and you can take this one.";
+            if (v.Choices.Exists(ch => ch.Id == GameSession.ChoiceIds.TrustMe))
+                return "They spotted a problem. Say you'll fix it and redo the work, or tell them to trust you.";
+            if (v.Choices.Exists(ch => ch.Id == GameSession.ChoiceIds.FixIt))
+                return "They're not buying it. Say you'll fix it, then redo what they said.";
+            if (v.Order == null && c != null && c.Owned && c.HandbookOutdated)
+                return $"Your {c.Spec.Name} handbook is OUTDATED. Click the COMPUTER, then SHOP: the update is {Labels.Money(Balance.HandbookUpdateCost)}. Then take the job.";
+            if (v.Order == null && v.Request != null && v.Request.Urgent)
+                return "A rush job: more money, a hard deadline. Check the clock before you say yes.";
+            return "Pick a reply. (Click a speech bubble to skip a line.)";
+        }
+
+        CountryState OutdatedHandbook()
+        {
+            foreach (var c in S.CountryList)
+                if (c.Owned && c.HandbookOutdated) return c;
+            return null;
+        }
+
+        /// <summary>True when the day's visitors are done: nobody in the shop and nobody else due today.</summary>
+        bool NobodyElseToday()
+        {
+            foreach (var a in S.Director.Upcoming)
+                if (a.At.Day <= S.Day) return false;
+            return true;
         }
 
         // ================================================================== interactions
@@ -453,7 +545,10 @@ namespace LegitEnough.Game
                     }
                     if (S.Phase == DayPhase.Open)
                     {
-                        _game.Open(new ConfirmView(_game, "Close early?", "It's not 18:00 yet. Closing now ends the day.", "CLOSE THE SHOP", () => S.CloseShop()));
+                        bool lastDay = S.IsDemo && S.Day >= S.Rules.LastDay;
+                        _game.Open(new ConfirmView(_game, "Close early?",
+                            lastDay ? "It's not 18:00 yet. Closing now ends the day, and the demo." : "It's not 18:00 yet. Closing now ends the day.",
+                            "CLOSE THE SHOP", () => S.CloseShop()));
                         return;
                     }
                     S.CloseShop();
@@ -480,7 +575,57 @@ namespace LegitEnough.Game
             {
                 if (v.Order != null && v.Order.Status == OrderStatus.AwaitingPhoto && S.SendToStool(v.Id)) return;
             }
+            var again = stool == null ? RetakeCandidate() : null;
+            if (again != null)
+            {
+                AskRetake(again);
+                return;
+            }
             _game.Toasts.Show(stool != null ? "They're still getting settled." : "Nobody on the stool. Accept a job first.");
+        }
+
+        /// <summary>
+        /// Who a click on the photo corner calls back for another photo: someone whose passport isn't
+        /// handed over yet. With several, the one photographed last (the photo you're likely unhappy with).
+        /// </summary>
+        Visit RetakeCandidate()
+        {
+            Visit best = null;
+            int newest = -1;
+            foreach (var v in S.Visits)
+            {
+                if (!S.CanCallBackForPhoto(v.Id)) continue;
+                int last = -1;
+                foreach (var p in S.Photos.ForCustomer(v.Customer.Id)) last = Mathf.Max(last, p.Id);
+                if (best == null || last > newest)
+                {
+                    best = v;
+                    newest = last;
+                }
+            }
+            return best;
+        }
+
+        void AskRetake(Visit v)
+        {
+            var o = v.Order;
+            bool male = v.Customer.Identity.Sex == Sex.Male;
+            string name = v.Customer.FirstName;
+            bool made = o.Status == OrderStatus.Ready || S.Printer.Tray.Exists(p => p.OrderId == o.Id)
+                || (S.Printer.Printing != null && S.Printer.Printing.OrderId == o.Id);
+            string text = $"Call {name} back to the stool for a new photo? It costs a little of {(male ? "his" : "her")} patience. "
+                + (made
+                    ? "The passport you made keeps the old photo: pick the new one in the editor and print again."
+                    : "Then pick the photo you want in the editor.");
+            int id = v.Id;
+            _retakeAsk = new ConfirmView(_game, "Another photo?", text, male ? "CALL HIM BACK" : "CALL HER BACK", () =>
+            {
+                _retakeAsk = null;
+                if (S.CallBackForPhoto(id)) Sfx.Play(SfxId.Pop, 0.6f);
+                else if (!S.Visits.Exists(x => x.Id == id && x.Line != null))
+                    _game.Toasts.Show("Not now. Try again when the stool is free.");
+            });
+            _game.Open(_retakeAsk);
         }
 
         void OnFigureClicked(Visit v)
@@ -515,6 +660,8 @@ namespace LegitEnough.Game
                 return;
             }
             if (S.Printer.Tray.Count > 0) _game.Open(new PrintMenu(_game, S.Printer.Tray[0].Id));
+            else if (S.Printer.Printing != null) _game.Toasts.Show($"Still printing. {Mathf.RoundToInt(S.Printer.Progress * 100f)}%.");
+            else if (S.Printer.Busy) _game.Toasts.Show("Still printing.");
         }
 
         // ---------------- booklet drag & drop

@@ -25,6 +25,17 @@ namespace LegitEnough.Sim
         /// <summary>First day this beat may happen.</summary>
         public int EarliestDay = 1;
         public float ArrivalMinute = 9 * 60 + 12;
+
+        // Optional extras used by the demo's scripted day.
+        /// <summary>The most they'll pay when haggled with (0 = the offer is all they have).</summary>
+        public int Reservation;
+        public bool Urgent;
+        /// <summary>Game minutes from walking in to the deadline (0 = the usual rules).</summary>
+        public int DeadlineMinutes;
+        /// <summary>Extra patience on top of the usual story bonus.</summary>
+        public float PatienceMultiplier = 1f;
+        /// <summary>What they say when the player turns them down (null = their usual line).</summary>
+        public string DeclineReply;
     }
 
     /// <summary>Handcrafted characters. Ids from 10000 up so they never collide with generated ones.</summary>
@@ -33,6 +44,7 @@ namespace LegitEnough.Sim
         public const int SamirId = 10001;
         public const int YoussefId = 10002;
         public const string Brothers = "brothers";
+        public const string SamirBeatId = "samir";
 
         public static IEnumerable<CustomerProfile> CreateProfiles()
         {
@@ -110,7 +122,7 @@ namespace LegitEnough.Sim
         public static StoryBeat SamirArrives() => new StoryBeat
         {
             StoryId = Brothers,
-            BeatId = "samir",
+            BeatId = SamirBeatId,
             CustomerId = SamirId,
             CountryId = Countries.France,
             Offer = 450,

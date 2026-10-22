@@ -25,16 +25,20 @@ namespace LegitEnough.Sim
             return (float)Math.Max(0.0, Math.Min(1.0, logistic * factor));
         }
 
+        /// <param name="alwaysWrites">True: the customer always writes back with a clear success or failure.</param>
         public static PendingOutcome Decide(Order order, CustomerProfile customer, float countryRisk, float heat,
-            GameTime deliveredAt, string city, Rng rng)
+            GameTime deliveredAt, string city, Rng rng, bool alwaysWrites = false)
         {
             float p = SuccessChance(order.Quality?.Final ?? 0f, countryRisk, heat, customer.Stats.Risk);
             OutcomeKind kind = rng.Chance(p) ? OutcomeKind.Success : OutcomeKind.Failed;
 
-            // Some people simply never write back.
-            if (rng.Chance(Balance.UnknownOutcomeChance)) kind = OutcomeKind.Unknown;
-            // High-risk customers occasionally vanish.
-            if (kind == OutcomeKind.Failed && rng.Chance(0.12f * customer.Stats.Risk)) kind = OutcomeKind.Missing;
+            if (!alwaysWrites)
+            {
+                // Some people simply never write back.
+                if (rng.Chance(Balance.UnknownOutcomeChance)) kind = OutcomeKind.Unknown;
+                // High-risk customers occasionally vanish.
+                if (kind == OutcomeKind.Failed && rng.Chance(0.12f * customer.Stats.Risk)) kind = OutcomeKind.Missing;
+            }
 
             int travelDays = rng.Range(1, 4);
             int silenceDays = kind == OutcomeKind.Missing ? rng.Range(5, 9) : rng.Range(0, 4);

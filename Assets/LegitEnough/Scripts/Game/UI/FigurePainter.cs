@@ -602,8 +602,15 @@ namespace LegitEnough.Game
                     break;
                 }
                 case HairStyle.Long:
-                    p.RoundRect(new Rect(hc.x - w * 0.66f, top - 0.04f * h, w * 1.32f, h * 1.42f), w * 0.5f, Draw.Shade(hair, 0.82f));
+                {
+                    // Behind the skull down to the jaw, then two curtains past the shoulders. The gap
+                    // between them keeps the neck and collar visible (one slab read as a beard).
+                    Color back = Draw.Shade(hair, 0.82f);
+                    p.RoundRect(new Rect(hc.x - w * 0.66f, top - 0.04f * h, w * 1.32f, h * 0.98f), w * 0.5f, back);
+                    p.RoundRect(new Rect(hc.x - w * 0.66f, hc.y + 0.1f * h, w * 0.42f, h * 0.78f), w * 0.15f, back);
+                    p.RoundRect(new Rect(hc.x + w * 0.24f, hc.y + 0.1f * h, w * 0.42f, h * 0.78f), w * 0.15f, back);
                     break;
+                }
                 case HairStyle.Ponytail:
                     p.Ellipse(new Vector2(hc.x + w * 0.56f, hc.y + 0.18f * h), w * 0.12f, h * 0.3f, Draw.Shade(hair, 0.82f));
                     break;

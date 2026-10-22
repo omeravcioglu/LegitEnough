@@ -24,8 +24,8 @@ namespace LegitEnough.Game
             {
                 Close();
                 Game.OpenComputer(orderId);
-            }, "le-btn--primary", buttons);
-            Ui.Btn("CLOSE", Close, "le-btn--ghost", buttons);
+            }, "le-btn--primary", buttons).name = "slip-open-editor";
+            Ui.Btn("CLOSE", Close, "le-btn--ghost", buttons).name = "slip-close";
         }
 
         /// <summary>Shared by this overlay and the copy pinned beside the monitor.</summary>
@@ -58,16 +58,20 @@ namespace LegitEnough.Game
     {
         public ConfirmView(GameRoot game, string title, string text, string confirm, Action onConfirm) : base(game, "le-overlay--dim")
         {
-            var card = Ui.El("le-card le-confirm", Root).At(610, 330, 700, 360);
+            // Sized to its text and centred, so short questions don't leave a slab of empty card.
+            Root.style.justifyContent = Justify.Center;
+            Root.style.alignItems = Align.Center;
+            var card = Ui.El("le-card le-confirm", Root);
+            card.style.width = 700;
             Ui.Text(title, "le-h2", card);
             Ui.Text(text, "le-text", card);
             var row = Ui.El("le-row le-row--end", card);
-            Ui.Btn("CANCEL", Close, "le-btn--ghost", row);
+            Ui.Btn("CANCEL", Close, "le-btn--ghost", row).name = "confirm-cancel";
             Ui.Btn(confirm, () =>
             {
                 Close();
                 onConfirm?.Invoke();
-            }, "le-btn--danger", row);
+            }, "le-btn--danger", row).name = "confirm-ok";
         }
 
         public override bool PausesGame => true;
@@ -99,12 +103,12 @@ namespace LegitEnough.Game
                 S.ShredPage(pageId);
                 Close();
             }, "le-btn--danger", row);
-            Ui.Btn("LEAVE IT", Close, "le-btn--ghost", row);
+            Ui.Btn("LEAVE IT", Close, "le-btn--ghost", row).name = "print-leave";
             Ui.Btn("BIND INTO BOOKLET", () =>
             {
                 S.BindPage(pageId);
                 Close();
-            }, "le-btn--primary", row);
+            }, "le-btn--primary", row).name = "print-bind";
         }
     }
 }

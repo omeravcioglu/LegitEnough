@@ -15,6 +15,17 @@ $csc = Join-Path $Unity "DotNetSdkRoslyn\csc.dll"
 $template = Get-ChildItem -Recurse -Filter "Unity.InputSystem.rsp" (Join-Path $root "Library\Bee") | Select-Object -First 1
 if (-not $template) { Write-Host "No Unity build files yet (open the project in Unity once)." -ForegroundColor Yellow; exit 2 }
 $refs = Get-Content $template.FullName | Where-Object { $_ -match '^-r:' -or $_ -match '^-define:' }
+# The template's -r: paths are relative to the project root (Unity runs csc from there), and Unity
+# prunes intermediate *.ref.dll files from Library/Bee: make every path absolute, fall back to the
+# built assembly in Library/ScriptAssemblies, and drop a reference that exists nowhere.
+$refs = $refs | ForEach-Object {
+    if ($_ -notmatch '^-r:"?([^"]+)"?$') { return $_ }
+    $p = $Matches[1]
+    $abs = if ([IO.Path]::IsPathRooted($p)) { $p } else { Join-Path $root $p }
+    if (Test-Path $abs) { return "-r:`"$abs`"" }
+    $built = Join-Path $root ("Library\ScriptAssemblies\" + ([IO.Path]::GetFileName($p) -replace '\.ref\.dll$', '.dll'))
+    if (Test-Path $built) { return "-r:`"$built`"" }
+}
 $inputSystem = Join-Path $root "Library\ScriptAssemblies\Unity.InputSystem.dll"
 
 $sfxSrc = Join-Path $root "Assets\LegitEnough\Scripts\Game\Audio\Sfx.cs"

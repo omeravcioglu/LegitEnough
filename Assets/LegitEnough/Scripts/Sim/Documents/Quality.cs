@@ -125,6 +125,10 @@ namespace LegitEnough.Sim
 
     public static class IssueInfo
     {
+        /// <summary>Fixing this means a new photo (a missing or wrong photo is fixed in the editor instead).</summary>
+        public static bool NeedsRetake(Finding f) =>
+            f.Area == ScoreArea.Photo && f.Issue != Issue.NoPhoto && f.Issue != Issue.WrongPerson;
+
         /// <summary>Chance a customer spots this when they look over their document at the counter.</summary>
         public static float Noticeability(Finding f)
         {

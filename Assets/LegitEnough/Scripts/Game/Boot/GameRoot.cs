@@ -22,15 +22,28 @@ namespace LegitEnough.Game
 
         public static GameRoot Instance { get; private set; }
 
+        /// <summary>
+        /// The player build is the demo. The trailer and store harnesses set this to false
+        /// before the first session is made, so they film the full game as before.
+        /// </summary>
+        public static bool DemoBuild = true;
+
         public GameSession Session { get; private set; }
         public VisualElement Stage { get; private set; }
         public ShopView Shop { get; private set; }
         public Toasts Toasts { get; private set; }
+        /// <summary>R.'s Day-1 notes (demo only; it stays hidden otherwise).</summary>
+        public TutorialCoach Coach { get; private set; }
         public bool ShowHints = true;
+
+        /// <summary>True while a menu screen owns the stage: the splash, the title or the demo end.</summary>
+        public bool MenuUp => Find<SplashView>() != null || Find<TitleView>() != null || Find<DemoEndView>() != null;
 
         UIDocument _doc;
         VisualElement _root;
         VisualElement _overlayLayer;
+        VisualElement _toastLayer;
+        bool _toastsHidden;
         readonly List<Overlay> _overlays = new List<Overlay>();
         bool _reportShown;
         int _startCardDay;
@@ -42,9 +55,15 @@ namespace LegitEnough.Game
         void Awake()
         {
             Instance = this;
-            Application.targetFrameRate = 60;
+#if UNITY_EDITOR
+            // Developers play the full game in the Editor through an EditorPrefs switch, never by
+            // editing DemoBuild. Batch harnesses (smoke test, trailer, store shots) set it themselves.
+            if (!Application.isBatchMode && UnityEditor.EditorPrefs.GetBool("LegitEnough.PlayFullGameInEditor", false)) DemoBuild = false;
+#endif
+            GameSettings.ApplyFrameCap();
             if (FindFirstObjectByType<AudioListener>() == null) gameObject.AddComponent<AudioListener>();
             gameObject.AddComponent<SfxPlayer>();
+            GameSettings.ApplySaved(this);
             CreateDocument();
         }
 
@@ -52,11 +71,33 @@ namespace LegitEnough.Game
         {
             NewGame(FixedSeed != 0 ? FixedSeed : (ulong)DateTime.Now.Ticks);
             Open(new TitleView(this));
+            // The studio ident plays over the title, then fades into it. Batch runs (smoke test,
+            // store shots, trailer) go straight to the title they wait for.
+            if (!Application.isBatchMode) Open(new SplashView(this));
         }
 
         void OnDestroy()
         {
             if (Instance == this) Instance = null;
+        }
+
+        /// <summary>Alt-tab (or the store page opening) during a shift stops the clock behind PAUSED.</summary>
+        void OnApplicationFocus(bool hasFocus)
+        {
+            if (hasFocus || Application.isBatchMode || Application.isEditor) return;
+            PauseShift();
+        }
+
+        /// <summary>
+        /// Opens the pause menu when the shop clock is running. Menu screens and cards that already
+        /// stop the clock (day cards, settings, confirms, papers) are left as they are.
+        /// </summary>
+        public void PauseShift()
+        {
+            if (Session == null || _overlayLayer == null || MenuUp) return;
+            foreach (var o in _overlays)
+                if (o.PausesGame) return;
+            Open(new PauseView(this));
         }
 
         void CreateDocument()
@@ -85,6 +126,12 @@ namespace LegitEnough.Game
             var sheet = Resources.Load<StyleSheet>("LegitEnough/UI/Main");
             if (sheet != null) _root.styleSheets.Add(sheet);
             else Debug.LogWarning("LegitEnough: Main.uss not found in Resources/LegitEnough/UI.");
+            // The demo's screens, locks and tutorial notes each keep their own sheet.
+            foreach (var extra in new[] { "DemoBoot", "DemoLocks", "DemoTutorial" })
+            {
+                var more = Resources.Load<StyleSheet>("LegitEnough/UI/" + extra);
+                if (more != null) _root.styleSheets.Add(more);
+            }
             _root.AddToClassList("le-root");
             _root.RegisterCallback<GeometryChangedEvent>(_ => LayoutStage());
         }
@@ -101,16 +148,21 @@ namespace LegitEnough.Game
         {
             foreach (var o in _overlays.ToArray()) CloseOverlay(o);
             _root.Clear();
-            Session = new GameSession(seed);
+            Session = DemoBuild ? new GameSession(seed, GameRules.Demo()) : new GameSession(seed);
             Stage = Ui.El("le-stage", _root).At(0, 0, StageWidth, StageHeight);
             Shop = new ShopView(this, Stage);
             _overlayLayer = Ui.El("le-overlay-layer", Stage).At(0, 0, StageWidth, StageHeight);
             _overlayLayer.pickingMode = PickingMode.Ignore;
+            // Above every screen (it points into the computer and the camera), below the toasts.
+            Coach = new TutorialCoach(this);
+            Stage.Add(Coach.Root);
             Toasts = new Toasts(Stage);
+            _toastLayer = Stage.Q(className: "le-toasts");
+            _toastsHidden = false;
             _reportShown = false;
             _startCardDay = 0;
             LayoutStage();
-            Debug.Log($"LEGIT ENOUGH: new game, seed {seed}");
+            Debug.Log($"LEGIT ENOUGH: new game ({(Session.IsDemo ? "demo" : "full")}), seed {seed}");
         }
 
         // ------------------------------------------------------------------ overlays
@@ -167,6 +219,7 @@ namespace LegitEnough.Game
         {
             if (Session == null) return;
             float dt = Mathf.Min(Time.unscaledDeltaTime, 0.1f);
+            GameSettings.Poll();
             HandleKeys();
 
             bool paused = false;
@@ -177,13 +230,34 @@ namespace LegitEnough.Game
 
             Shop.Tick(dt);
             foreach (var o in _overlays.ToArray()) o.Tick(dt);
+            Coach.Tick(dt);
+            SyncToasts();
             Toasts.Tick(dt);
             DayFlow();
         }
 
+        /// <summary>
+        /// Toasts belong to the shop: the splash, title and demo-end screens never show them. Over the
+        /// computer and the handbook they drop to the strip under the window, clear of the OS title
+        /// bar (date, clock, cash, X) and the handbook's tab column, and fewer stack there.
+        /// </summary>
+        void SyncToasts()
+        {
+            if (_toastLayer == null) return;
+            bool pc = Find<ComputerView>() != null, binder = Find<HandbookView>() != null;
+            _toastLayer.EnableInClassList("le-toasts--low", pc || binder);
+            // Under the computer two fit (strip + bezel); under the binder only the strip is free.
+            Toasts.MaxVisible = binder ? 1 : pc ? 2 : 5;
+            bool hide = MenuUp;
+            if (hide == _toastsHidden) return;
+            _toastsHidden = hide;
+            _toastLayer.style.visibility = hide ? Visibility.Hidden : Visibility.Visible;
+        }
+
         void DayFlow()
         {
-            if (Find<TitleView>() != null) return;
+            // The title and the demo-end screen own the stage: no day cards over them.
+            if (Find<TitleView>() != null || Find<DemoEndView>() != null) return;
             if (Session.Phase == DayPhase.Closed && !_reportShown)
             {
                 _reportShown = true;
@@ -218,16 +292,23 @@ namespace LegitEnough.Game
                 return;
             }
             if (IsTyping()) return;
+            // Menu screens (and the settings card) take no shop shortcuts.
+            if (MenuUp || Find<SettingsView>() != null) return;
 
             if (kb.hKey.wasPressedThisFrame) ToggleHandbook();
             if (kb.spaceKey.wasPressedThisFrame && Top is CameraView cam) cam.Shutter();
             if (kb.f1Key.wasPressedThisFrame)
             {
-                ShowHints = !ShowHints;
-                Toasts.Show(ShowHints ? "Hints on (F1)" : "Hints off (F1)");
+                // F1 is where players look for help: say what went away and how to get it back.
+                bool coached = TutorialCoach.IsActiveFor(this);
+                GameSettings.SetHints(this, !ShowHints);
+                if (coached) Toasts.Show("R.'s notes hidden. F1 brings them back.");
+                else if (TutorialCoach.IsActiveFor(this)) Toasts.Show("R.'s notes are back. (F1 hides them.)");
+                else Toasts.Show(ShowHints ? "Hints on. (F1 hides them.)" : "Hints off. F1 or SETTINGS brings them back.");
             }
 
-            // Development shortcuts.
+#if UNITY_EDITOR || DEVELOPMENT_BUILD
+            // Development shortcuts (never in a release build).
             if (kb.f5Key.wasPressedThisFrame)
             {
                 Session.DebugSpawnWalkIn();
@@ -239,12 +320,20 @@ namespace LegitEnough.Game
                 Toasts.Show("[dev] +30 minutes");
             }
             if (kb.f9Key.wasPressedThisFrame && Find<DevLineupView>() == null) Open(new DevLineupView(this));
+#endif
         }
 
         // ------------------------------------------------------------------ sim events
 
         void OnSimEvent(SimEvent e)
         {
+            Coach.OnSimEvent(e);
+            // Mail lands while the title is up (R.'s welcome note at boot): no chime and no toast
+            // over the menu screens. The day card counts the unread mail instead.
+            if (MenuUp) return;
+            // R.'s notes (demo Day 1) or the hint line (days 1-3) already say what to do next: the
+            // toast then just reports what happened instead of repeating the instruction.
+            bool guided = ShowHints && Session.Day <= 3;
             switch (e.Type)
             {
                 case SimEventType.DoorOpened:
@@ -262,7 +351,7 @@ namespace LegitEnough.Game
                     break;
                 case SimEventType.PagePrinted:
                     Sfx.Play(SfxId.PrinterDone);
-                    Toasts.Show("Page printed. Click it in the printer tray to bind it.");
+                    Toasts.Show(guided ? "Page printed." : "Page printed. Click it in the printer tray to bind it.");
                     break;
                 case SimEventType.PrinterJammed:
                     Sfx.Play(SfxId.Jam);
@@ -270,7 +359,7 @@ namespace LegitEnough.Game
                     break;
                 case SimEventType.DocumentBound:
                     Sfx.Play(SfxId.Stamp);
-                    Toasts.Show("Booklet bound. Check it, then drag it to the customer.");
+                    Toasts.Show(guided ? "Booklet bound." : "Booklet bound. Check it, then drag it to the customer.");
                     break;
                 case SimEventType.DocumentShredded:
                     Sfx.Play(SfxId.Paper, 0.8f, 0.7f);
@@ -286,6 +375,8 @@ namespace LegitEnough.Game
                     Toasts.Show("+" + Labels.Money(e.Amount), "good");
                     break;
                 case SimEventType.MessageArrived:
+                    // The morning card lists the overnight mail itself.
+                    if (Find<DayStartView>() != null || (Session.Phase == DayPhase.Morning && _startCardDay != Session.Day)) break;
                     Sfx.Play(SfxId.Notify, 0.7f);
                     Toasts.Show("1 NEW MESSAGE");
                     break;
@@ -305,9 +396,21 @@ namespace LegitEnough.Game
                     Toasts.Show("Photo kept.");
                     break;
                 case SimEventType.Toast:
-                    Toasts.Show(e.Text);
+                    Toasts.Show(DemoToast(e.Text));
                     break;
             }
+        }
+
+        /// <summary>
+        /// The demo's locked-country visitor ("Japan is in the full game.") gets the same store line as
+        /// every other FULL GAME lock, so the toast says it once and points somewhere.
+        /// </summary>
+        string DemoToast(string text)
+        {
+            if (!Session.IsDemo || string.IsNullOrEmpty(text)) return text;
+            if (text.EndsWith(" is in the full game.", StringComparison.Ordinal) && text.IndexOf("Wishlist", StringComparison.Ordinal) < 0)
+                return text + " Wishlist us on Steam!";
+            return text;
         }
 
         public void QuitGame()

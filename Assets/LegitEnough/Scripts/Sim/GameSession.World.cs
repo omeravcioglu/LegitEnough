@@ -23,6 +23,8 @@ namespace LegitEnough.Sim
         public bool InternetDown => Clock.Day == _internetDownDay;
         public float TrafficMultiplier => Day <= _trafficUntilDay ? _trafficMultiplier : 1f;
         public bool SaleActive => Day <= _saleUntilDay;
+        /// <summary>Today's equipment discount in percent (0 when there's no sale).</summary>
+        public int SaleDiscountPercent => SaleActive ? (int)Math.Round((1f - _saleMultiplier) * 100f) : 0;
 
         /// <summary>Today's price for a piece of equipment (sales apply).</summary>
         public int PriceOf(EquipmentDef e) => SaleActive ? Pricing.RoundTo((int)(e.Price * _saleMultiplier), 25) : e.Price;
@@ -70,7 +72,10 @@ namespace LegitEnough.Sim
                 case NewsEffect.RuleChange:
                 {
                     var fresh = c.Spec.Clone();
-                    c.LastRuleChange = NewsDesk.ChangeRule(fresh, Rng);
+                    c.LastRuleChange = n.RuleBackdrop.HasValue ? NewsDesk.SetBackdrop(fresh, n.RuleBackdrop.Value)
+                        : n.RuleCoverageMin > 0f ? NewsDesk.SetCoverage(fresh, n.RuleCoverageMin)
+                        : NewsDesk.ChangeRule(fresh, Rng);
+                    if (n.RuleNote != null && fresh.Notes.Length > 0) fresh.Notes[0] = n.RuleNote;
                     if (c.HandbookSpec == null) c.HandbookSpec = c.Spec;
                     c.Spec = fresh;
                     c.LastRuleChangeDay = Day;

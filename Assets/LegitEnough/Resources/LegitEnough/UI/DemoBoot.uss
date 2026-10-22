@@ -1,0 +1,179 @@
+/* =====================================================================
+   LEGIT ENOUGH - boot and flow screens: studio splash, title extras,
+   settings, the centred menu cards and the demo-end screen
+   (SplashView, TitleView, SettingsView, PauseView, DemoEndView, DayViews).
+   Loaded after Main.uss; only the classes below are new or extended.
+   Font sizes stay multiples of 12.
+   ===================================================================== */
+
+/* A full-stage column that centres one card (pause, settings, demo end). */
+.le-center {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    align-items: center;
+    justify-content: center;
+}
+
+/* ---------------------------------------------------------------- splash */
+
+.le-splash { background-color: rgb(6, 5, 4); }
+.le-splash__logo { flex-shrink: 0; }
+
+/* ---------------------------------------------------------------- title */
+
+/* The demo panel (DEMO logo at x5, five buttons, a one-line note) ends above the CRT bezel. */
+.le-title--demo .le-btn--menu { padding-top: 4px; padding-bottom: 4px; }
+.le-title--demo .le-title__menu { margin: 4px 0 8px 0; }
+
+.le-btn--menu.le-btn--wish { color: var(--le-accent); }
+.le-btn--menu.le-btn--wish:hover { color: #ffd890; }
+.le-title__note { font-size: 24px; color: var(--le-muted); margin: 0 0 10px 0; }
+.le-credits__studio { align-self: flex-start; margin: 6px 0 18px 0; }
+.le-credits .le-text { margin-bottom: 12px; }
+.le-btn.le-credits__close { align-self: flex-end; margin: 12px 0 0 0; }
+
+/* ---------------------------------------------------------------- day cards */
+
+.le-daycard__demo {
+    -unity-font-definition: resource("LegitEnough/Fonts/LegitStamp");
+    font-size: 24px;
+    color: #e0645e;
+    border-width: 3px;
+    border-color: #e0645e;
+    padding: 4px 14px 6px 14px;
+    margin: -18px 0 30px 0;
+}
+.le-daycard__note.le-daycard__note--coached { margin-bottom: 72px; }
+/* Overnight word from a client (the demo's Day-2 morning: Samir). */
+.le-daycard__item.le-daycard__item--good { color: var(--le-good); }
+.le-daycard__item.le-daycard__item--bad { color: #e0645e; }
+.le-daycard__item.le-daycard__item--quote { margin-left: 34px; color: #d4c7aa; }
+.le-daycard--word .le-daycard__logo { margin-bottom: 6px; }
+.le-daycard--word .le-daycard__date { margin-bottom: 24px; }
+.le-daycard--word .le-daycard__demo { margin-bottom: 18px; }
+
+/* ---------------------------------------------------------------- settings */
+
+.le-settings { width: 900px; }
+.le-settings > .le-h1 { -unity-text-align: middle-center; margin-bottom: 24px; }
+.le-set__row { margin: 6px 0; min-height: 60px; }
+.le-set__label {
+    -unity-font-definition: resource("LegitEnough/Fonts/LegitStamp");
+    font-size: 24px;
+    color: var(--le-text);
+    width: 300px;
+    flex-shrink: 0;
+}
+/* 832px of content against the 808px volume row: nothing in it may shrink under the '+'. */
+.le-set__pips { margin: 0 6px; flex-shrink: 0; }
+.le-btn.le-set__pip {
+    width: 24px;
+    height: 36px;
+    min-width: 0;
+    margin: 0 3px;
+    padding: 0;
+    border-width: 3px;
+    background-color: #120e0b;
+    border-top-color: #0a0806;
+    border-left-color: #0a0806;
+    border-bottom-color: #4a3e30;
+    border-right-color: #4a3e30;
+}
+.le-btn.le-set__pip:hover { border-color: var(--le-accent); }
+.le-btn.le-set__pip--on {
+    background-color: var(--le-accent);
+    border-top-color: #f0c86a;
+    border-left-color: #f0c86a;
+    border-bottom-color: #7a5418;
+    border-right-color: #7a5418;
+}
+.le-set__value { font-size: 24px; color: var(--le-text); width: 84px; flex-shrink: 0; -unity-text-align: middle-right; }
+.le-btn.le-set__toggle { min-width: 120px; margin: 6px 0; }
+.le-btn.le-set__toggle--on {
+    background-color: #b8782a;
+    color: #1c1206;
+    border-top-color: #f0b858;
+    border-left-color: #f0b858;
+    border-bottom-color: #5a3810;
+    border-right-color: #5a3810;
+}
+.le-settings__help { font-size: 24px; margin: 6px 0 12px 300px; }
+.le-settings__foot { margin-top: 18px; }
+.le-settings__keys { font-size: 24px; -unity-text-align: middle-center; margin-top: 12px; }
+
+/* ---------------------------------------------------------------- pause */
+
+.le-pause > .le-btn { margin: 6px 40px; }
+.le-pause > .le-muted.le-pause__keys { margin-top: 12px; }
+.le-pause > .le-muted { margin-top: 0; }
+
+/* ---------------------------------------------------------------- demo end */
+
+.le-demoend { background-color: rgba(6, 5, 4, 0.88); }
+.le-demoend__card {
+    width: 1440px;
+    background-color: var(--le-panel);
+    border-width: 4px;
+    border-top-color: var(--le-panel-hi);
+    border-left-color: var(--le-panel-hi);
+    border-bottom-color: var(--le-panel-lo);
+    border-right-color: var(--le-panel-lo);
+    padding: 30px 48px 18px 48px;
+}
+.le-demoend__head { align-items: center; }
+.le-demoend__logo { margin-right: 48px; }
+.le-demoend__title {
+    -unity-font-definition: resource("LegitEnough/Fonts/LegitStamp");
+    font-size: 72px;
+    color: var(--le-text);
+    margin-bottom: 12px;
+}
+.le-demoend__lede { font-size: 24px; color: var(--le-muted); }
+.le-demoend__cols { align-items: flex-start; margin-top: 18px; }
+.le-demoend__stats {
+    width: 620px;
+    flex-shrink: 0;
+    background-color: var(--le-paper);
+    padding: 24px 36px 30px 36px;
+    border-bottom-width: 8px;
+    border-right-width: 8px;
+    border-color: #1a1410;
+}
+.le-demoend__stats > .le-ledger__title { margin-bottom: 12px; }
+.le-demoend__full { margin-left: 48px; }
+.le-demoend__h { margin-bottom: 12px; }
+.le-demoend__item { font-size: 24px; color: var(--le-text); margin-bottom: 10px; }
+.le-demoend__flags { margin-top: 12px; margin-bottom: 8px; }
+.le-demoend__flag { margin-right: 18px; }
+.le-demoend__badge { margin-left: 6px; }
+.le-demoend__caption { font-size: 24px; color: var(--le-muted); }
+.le-demoend__buttons { margin-top: 18px; }
+.le-demoend__buttons > .le-btn { margin: 6px 12px; }
+.le-demoend__note { font-size: 24px; color: var(--le-good); -unity-text-align: middle-center; min-height: 30px; margin-top: 6px; }
+.le-demoend__foot { font-size: 24px; color: var(--le-muted); -unity-text-align: middle-center; margin-top: 6px; }
+
+/* "A few days later": word from the clients, and who hasn't written yet. */
+.le-demoend__later { margin-top: 18px; }
+.le-demoend__later > .le-ledger__title { font-size: 24px; margin-bottom: 6px; }
+.le-demoend__word { font-size: 24px; color: var(--le-ink); margin-bottom: 6px; }
+.le-demoend__word--good { color: #2f7a35; }
+.le-demoend__word--bad { color: #a8342b; }
+.le-demoend__wait { font-size: 24px; color: var(--le-ink-soft); }
+
+/* ---------------------------------------------------------------- toasts */
+
+/* Over the computer and the handbook: bottom-centre, in the strip under the window, one line
+   wide enough for the longest FULL GAME nudge; a second one stacks above it. */
+.le-toasts.le-toasts--low {
+    top: auto;
+    right: auto;
+    bottom: 8px;
+    left: 560px;
+    width: 800px;
+    align-items: center;
+    flex-direction: column-reverse;
+}
+.le-toasts--low > .le-toast { margin-top: 0; margin-bottom: 4px; }

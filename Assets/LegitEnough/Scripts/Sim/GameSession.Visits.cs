@@ -114,9 +114,11 @@ namespace LegitEnough.Sim
                 Kind = a.Kind,
                 Beat = a.Beat,
                 Order = order,
+                ArrivedAt = Clock.Now,
             };
             float patience = Balance.PatienceSecondsMin + (Balance.PatienceSecondsMax - Balance.PatienceSecondsMin) * customer.Stats.Patience;
             if (customer.StoryId != null) patience *= 1.5f;
+            if (a.Beat != null) patience *= a.Beat.PatienceMultiplier;
             if (Day == 1) patience *= 1.4f;
             v.PatienceMax = v.Patience = patience;
             if (a.Kind == ArrivalKind.Referral) v.Request = new JobRequest { CustomerId = customer.Id };
@@ -345,8 +347,16 @@ namespace LegitEnough.Sim
             float f = v.PatienceFraction;
             if (f <= 0f)
             {
-                LeaveAngry(v);
-                return;
+                // The tutorial's only customer grumbles, but waits as long as it takes.
+                if (TutorialActive && v.Beat?.BeatId == StoryCast.SamirBeatId)
+                {
+                    v.Patience = 0f;
+                }
+                else
+                {
+                    LeaveAngry(v);
+                    return;
+                }
             }
             if (v.IsTalking) return;
             if (f < 0.25f && v.ComplaintLevel < 2)
@@ -440,9 +450,10 @@ namespace LegitEnough.Sim
             {
                 req.CountryId = beat.CountryId;
                 req.Offer = beat.Offer;
-                req.Reservation = beat.Offer;
+                req.Reservation = Math.Max(beat.Offer, beat.Reservation);
                 req.DestinationCity = beat.DestinationCity;
                 req.WaitsInShop = beat.WaitsInShop;
+                req.Urgent = beat.Urgent;
             }
             else
             {
@@ -455,7 +466,16 @@ namespace LegitEnough.Sim
                 req.Reservation = Pricing.ComputeReservation(req.Offer, p, rep);
                 req.DestinationCity = NamePools.DestinationCity(country.Id, Rng);
             }
-            req.Deadline = DeadlineFor(req);
+            if (beat != null && beat.DeadlineMinutes > 0)
+            {
+                var due = v.ArrivedAt.AddMinutes(beat.DeadlineMinutes);
+                var closing = new GameTime(Day, Balance.CloseMinute);
+                req.Deadline = due > closing ? closing : due;
+            }
+            else
+            {
+                req.Deadline = DeadlineFor(req);
+            }
             v.Request = req;
             v.Negotiation = new Negotiation(p, req.Offer, req.Reservation);
 
@@ -469,7 +489,7 @@ namespace LegitEnough.Sim
                 }
                 v.Say(beat.Request ?? Lines.Request(p, req, spec, Rng));
                 v.Say(beat.Motivation);
-                v.Say(beat.OfferLine ?? Lines.Offer(p, req.Offer, req.Urgent, Rng));
+                v.Say((beat.OfferLine ?? Lines.Offer(p, req.Offer, req.Urgent, Rng)).Replace(DemoCast.DueToken, req.Deadline.Clock));
             }
             else
             {
@@ -500,7 +520,12 @@ namespace LegitEnough.Sim
         {
             var options = new List<CountryState>();
             foreach (var c in CountryList)
-                if (Standing.Reputation >= c.Spec.UnlockReputation) options.Add(c);
+            {
+                // The full game keeps its original pool (owned countries drop out below their
+                // unlock reputation); the demo uses the shared rule.
+                bool ok = IsDemo ? c.Requestable(Standing.Reputation) : Standing.Reputation >= c.Spec.UnlockReputation;
+                if (ok) options.Add(c);
+            }
             if (options.Count == 0) return Countries[Sim.Countries.France];
             return Rng.PickWeighted(options, c =>
             {
@@ -515,7 +540,25 @@ namespace LegitEnough.Sim
             var n = v.Negotiation;
             if (!c.Owned)
             {
+                if (c.FullGameOnly) Emit(SimEventType.Toast, v.Id, text: $"{c.Spec.Name} is in the full game.");
                 ShowChoices(v, new Choice(ChoiceIds.Decline, Lines.Player.DontDo(c.Spec.Name)));
+                return;
+            }
+            if (TutorialActive && v.Beat?.BeatId == StoryCast.SamirBeatId)
+            {
+                // The guided first job can't go wrong at the counter: take it, or ask once.
+                if (n.FinalOffer.HasValue)
+                    ShowChoices(v, new Choice(ChoiceIds.Accept, Lines.Player.AcceptFinal(n.FinalOffer.Value)));
+                else
+                    ShowChoices(v,
+                        new Choice(ChoiceIds.Accept, Lines.Player.Accept(n.Offer)),
+                        new Choice(ChoiceIds.AskSmall, Lines.Player.Ask(n.SmallAsk)));
+                return;
+            }
+            if (IsDemo && !c.AcceptingJobs)
+            {
+                // Border Watch: the demo has no walk-ins to thin out, so "not taking" means exactly that.
+                ShowChoices(v, new Choice(ChoiceIds.Decline, Lines.Player.NotTaking(c.Spec.Name)));
                 return;
             }
             if (n.FinalOffer.HasValue)
@@ -582,7 +625,7 @@ namespace LegitEnough.Sim
                 }
                 case ChoiceIds.Decline:
                     n?.Decline();
-                    v.Say(Lines.Declined(p, Rng));
+                    v.Say(v.Beat?.DeclineReply ?? Lines.Declined(p, Rng));
                     LeaveAfterLines(v);
                     break;
 
@@ -595,6 +638,7 @@ namespace LegitEnough.Sim
                     break;
 
                 case ChoiceIds.FixIt:
+                {
                     if (v.Holding != null)
                     {
                         DeskDocuments.Add(v.Holding);
@@ -603,9 +647,19 @@ namespace LegitEnough.Sim
                     if (v.Order != null) v.Order.Redos++;
                     v.Patience -= v.PatienceMax * 0.15f;
                     v.ComplaintLevel = 0;
-                    v.Say(v.Customer.Has(Trait.Aggressive) ? "Hurry up." : "Okay. I'll wait.");
+                    // Demo: a photo problem needs a new photo. The old one comes off the order and
+                    // they wait on the bench until they're called back to the stool.
+                    bool retake = IsDemo && v.Order != null && v.Order.IsOpen && v.HasComplaint && IssueInfo.NeedsRetake(v.Complaint);
+                    if (retake)
+                    {
+                        v.Order.NeedsRetake = true;
+                        v.Order.Status = OrderStatus.AwaitingPhoto;
+                        v.Order.Draft.PhotoId = null;
+                    }
+                    v.Say(retake ? DemoCast.RetakeLine : v.Customer.Has(Trait.Aggressive) ? "Hurry up." : "Okay. I'll wait.");
                     Then(v, () => WalkTo(v, Spot.Bench, () => v.Phase = VisitPhase.Waiting));
                     break;
+                }
                 case ChoiceIds.TrustMe:
                     TryPersuade(v);
                     break;

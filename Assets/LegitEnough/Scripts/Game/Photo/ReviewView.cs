@@ -15,7 +15,10 @@ namespace LegitEnough.Game
         readonly PortraitView _image;
         readonly Painted _cropFrame;
 
-        public ReviewView(GameRoot game, PhotoCapture photo) : base(game, "le-overlay--dark")
+        /// <summary>The shot under review (read by the tutorial coach).</summary>
+        public PhotoCapture Photo => _photo;
+
+        public ReviewView(GameRoot game, PhotoCapture photo) : base(game, "le-overlay--camera")
         {
             _photo = photo;
             Ui.Text("THE PHOTO", "le-h1", Root).At(140, 40, 800, 60);
@@ -37,18 +40,18 @@ namespace LegitEnough.Game
             Ui.Text(photo.Crop.W >= 0.99f ? "Not cropped yet - the whole frame will be used." : "Cropped.", "le-muted", side).At(0, 410, 600, 30);
 
             var row = Ui.El("le-row", side).At(0, 520, 900, 90);
-            Ui.Btn("RETAKE", Close, "le-btn--ghost le-btn--big", row);
+            Ui.Btn("RETAKE", Close, "le-btn--ghost le-btn--big", row).name = "review-retake";
             Ui.Btn("CROP", () =>
             {
                 Close();
                 Game.Open(new CropView(Game, photo));
-            }, "le-btn--big", row);
+            }, "le-btn--big", row).name = "review-crop";
             Ui.Btn("KEEP", () =>
             {
                 S.KeepPhoto(photo);
                 Close();
-            }, "le-btn--primary le-btn--big", row);
-            Ui.Text("Kept photos can be inserted into the document on the computer.", "le-muted", side).At(0, 620, 800, 40);
+            }, "le-btn--primary le-btn--big", row).name = "review-keep";
+            Ui.Text("Kept photos can be inserted into the document on the computer. Not happy with it later? Click the photo corner to call them back for another.", "le-muted le-review__retake", side).At(0, 620, 800, 80);
         }
 
         void DrawCrop(Painter2D p, Rect r)
@@ -82,13 +85,17 @@ namespace LegitEnough.Game
         Box _crop;
         bool _showRuler = true;
 
+        /// <summary>The shot being cropped and the frame as it stands (read by the tutorial coach).</summary>
+        public PhotoCapture Photo => _photo;
+        public Box CurrentCrop => _crop;
+
         enum Mode { None, Move, Resize }
         Mode _mode;
         Vector2 _press;
         Box _cropAtPress;
         int _corner;
 
-        public CropView(GameRoot game, PhotoCapture photo) : base(game, "le-overlay--dark")
+        public CropView(GameRoot game, PhotoCapture photo) : base(game, "le-overlay--camera")
         {
             _photo = photo;
             _crop = photo.Crop;
@@ -103,6 +110,7 @@ namespace LegitEnough.Game
             _shade = new Painted(DrawShade).At(0, 0, W, H);
             _area.Add(_shade);
             _rect = Ui.El("le-crop__rect", _area);
+            _rect.name = "crop-frame";
             _rect.style.position = Position.Absolute;
             _rect.pickingMode = PickingMode.Ignore;
             _ruler = new Painted(DrawRuler, "le-crop__ruler");
@@ -145,7 +153,7 @@ namespace LegitEnough.Game
                 _photo.Crop = _crop;
                 Close();
                 Game.Open(new ReviewView(Game, _photo));
-            }, "le-btn--primary le-btn--big", row);
+            }, "le-btn--primary le-btn--big", row).name = "crop-done";
             Apply();
         }
 

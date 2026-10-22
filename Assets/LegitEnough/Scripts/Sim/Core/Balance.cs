@@ -42,6 +42,10 @@ namespace LegitEnough.Sim
         public const float PhotoPatienceDrainPerSecond = 1.2f;
         public const float CommandPatienceCost = 7f;
         public const float DragPatienceCost = 2.5f;
+        /// <summary>Calling a customer back for another photo costs this share of their patience.</summary>
+        public const float RetakePatienceCost = 0.1f;
+        /// <summary>Below this much patience they refuse another photo.</summary>
+        public const float RetakeRefuseBelow = 0.25f;
 
         // ---------- Negotiation ----------
         public const float AskSmallMultiplier = 1.33f;

@@ -39,6 +39,15 @@ namespace LegitEnough.SimTests
                 ("Session_Day1_PerfectJob_ToMessage", Tests.Session_Day1_PerfectJob_ToMessage),
                 ("Session_Day1_SloppyJob", Tests.Session_Day1_SloppyJob),
                 ("Session_TwentyDays_Bot", Tests.Session_TwentyDays_Bot),
+                ("Demo_OnlyDemoCountriesRequested", DemoTests.Demo_OnlyDemoCountriesRequested),
+                ("Demo_LocksAndDayTwoMorning", DemoTests.Demo_LocksAndDayTwoMorning),
+                ("Demo_TutorialSamirRestricted", DemoTests.Demo_TutorialSamirRestricted),
+                ("Demo_FirstPrintJamsCleanly", DemoTests.Demo_FirstPrintJamsCleanly),
+                ("Demo_SamirOutcomeOnDayTwoCard", DemoTests.Demo_SamirOutcomeOnDayTwoCard),
+                ("Demo_BotPlaysWholeDemo", DemoTests.Demo_BotPlaysWholeDemo),
+                ("Demo_CounterSignAndClockRules", DemoTests.Demo_CounterSignAndClockRules),
+                ("Retake_VoluntaryFullMode", DemoTests.Retake_VoluntaryFullMode),
+                ("Retake_VoluntaryDemo", DemoTests.Retake_VoluntaryDemo),
             };
 
             foreach (var (name, test) in tests)

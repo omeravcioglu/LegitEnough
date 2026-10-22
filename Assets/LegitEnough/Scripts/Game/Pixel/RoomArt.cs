@@ -891,11 +891,12 @@ namespace LegitEnough.Game
                     b.HLine(15, 98, 197, C("#c8bea0"));
                     b.Rect(94, 197, 6, 60, C("#968c6f"));
                     b.Rect(14, 256, 86, 2, C("#7d7560"));
-                    b.Rect(20, 201, 72, 50, C("#8a8269"));
-                    b.Box(20, 201, 72, 50, C("#6e6753"));
+                    // The screen's frame ends a row higher so the badge fits the bezel lip (rows 251-255).
+                    b.Rect(20, 201, 72, 49, C("#8a8269"));
+                    b.Box(20, 201, 72, 49, C("#6e6753"));
                     b.Rect(38, 258, 38, 4, C("#8f866b"));
                     b.Rect(30, 262, 54, 3, C("#a39a7e"));
-                    b.Text("BEIGE 98", 24, 250, C("#6e6753"), PixelFont.Tiny);
+                    b.Text("BEIGE 98", 24, 251, C("#6e6753"), PixelFont.Tiny);
                     // Sticky note on the bezel.
                     b.Rect(86, 194, 10, 9, C("#e2cd48"));
                     b.HLine(87, 94, 197, C("#8a7a2a"));
@@ -1051,15 +1052,16 @@ namespace LegitEnough.Game
                     // Duct tape across the corner.
                     for (int i = 0; i < 12; i++) b.Rect(x + 1 + i, y + 8 + i, 5, 2, i % 3 != 0 ? C("#8e8f8a") : C("#a3a49e"));
                     // HIT IT IF IT STOPS. And underneath, in different handwriting: BUT SOFTLY.
-                    b.Rect(x + 44, y + 8, 25, 17, C("#e2cd48"));
-                    b.HLine(x + 44, x + 68, y + 24, C("#b8a33a"));
-                    b.Text("HIT IT", x + 46, y + 9, C("#2a2418"), PixelFont.Tiny);
+                    // 5-pixel letters on a 6-pixel pitch, everything above the paper slot (y + 26).
+                    b.Rect(x + 44, y + 7, 25, 18, C("#e2cd48"));
+                    b.HLine(x + 44, x + 68, y + 25, C("#b8a33a"));
+                    b.Text("HIT IT", x + 46, y + 8, C("#2a2418"), PixelFont.Tiny);
                     b.Text("IF IT", x + 46, y + 14, C("#2a2418"), PixelFont.Tiny);
-                    b.Text("STOPS", x + 46, y + 19, C("#2a2418"), PixelFont.Tiny);
-                    b.Rect(x + 18, y + 13, 25, 11, C("#e08aa0"));
-                    b.HLine(x + 18, x + 42, y + 23, C("#b8687a"));
-                    b.Text("BUT", x + 25, y + 14, C("#3a1a22"), PixelFont.Tiny);
-                    b.Text("SOFTLY", x + 19, y + 18, C("#3a1a22"), PixelFont.Tiny);
+                    b.Text("STOPS", x + 46, y + 20, C("#2a2418"), PixelFont.Tiny);
+                    b.Rect(x + 18, y + 12, 25, 12, C("#e08aa0"));
+                    b.HLine(x + 18, x + 42, y + 24, C("#b8687a"));
+                    b.Text("BUT", x + 25, y + 13, C("#3a1a22"), PixelFont.Tiny);
+                    b.Text("SOFTLY", x + 19, y + 19, C("#3a1a22"), PixelFont.Tiny);
                     break;
                 case 2:
                     b.Rect(x + 2, y + 2, 66, 47, C("#c9c6bd"));

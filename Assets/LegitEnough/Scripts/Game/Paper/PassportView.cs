@@ -31,7 +31,10 @@ namespace LegitEnough.Game
 
             var order = S.Orders.Get(doc.OrderId);
             string who = order != null ? $"Order #{order.Id} for {S.Customer(order.CustomerId).DisplayName}" : $"Order #{doc.OrderId}";
-            Ui.Text(who + $"  -  bound {Calendar.Relative(doc.BoundAt.Day, S.Day).ToLowerInvariant()} {doc.BoundAt.Clock}", "le-passport__who", Root).At(260, 890, 1400, 30);
+            // Above the book on its own plate: clear of the desk art, the buttons and the coach's arrow.
+            var whoRow = Ui.El("le-row le-row--center", Root).At(260, 70, 1400, 44);
+            whoRow.pickingMode = PickingMode.Ignore;
+            Ui.Text(who + $"  -  bound {Calendar.Relative(doc.BoundAt.Day, S.Day).ToLowerInvariant()} {doc.BoundAt.Clock}", "le-passport__who", whoRow);
 
             var row = Ui.El("le-row le-row--center", Root).At(260, 940, 1400, 80);
             row.RegisterCallback<ClickEvent>(e => e.StopPropagation());
@@ -39,8 +42,8 @@ namespace LegitEnough.Game
             {
                 S.ShredDocument(_doc.Id);
                 Close();
-            })), "le-btn--danger", row);
-            Ui.Btn("CLOSE", Close, "le-btn--ghost", row);
+            })), "le-btn--danger", row).name = "passport-shred";
+            Ui.Btn("CLOSE", Close, "le-btn--ghost", row).name = "passport-close";
             var counter = S.CounterVisit;
             if (counter != null && counter.Order != null && !counter.Moving)
             {

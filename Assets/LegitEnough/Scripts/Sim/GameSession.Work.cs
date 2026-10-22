@@ -57,6 +57,7 @@ namespace LegitEnough.Sim
             Photos.Keep(photo);
             var o = Orders.OpenFor(photo.CustomerId);
             if (o != null && o.Status == OrderStatus.AwaitingPhoto) o.Status = OrderStatus.InProduction;
+            if (o != null) o.NeedsRetake = false;
             Emit(SimEventType.PhotoKept, orderId: o?.Id ?? 0, amount: photo.Id);
         }
 
@@ -66,7 +67,7 @@ namespace LegitEnough.Sim
             var v = GetVisit(visitId);
             if (v == null || v.Phase != VisitPhase.PhotoSitting || v.Moving) return false;
             var o = v.Order;
-            if (o == null || Photos.ForCustomer(v.Customer.Id).Count == 0)
+            if (o == null || Photos.ForCustomer(v.Customer.Id).Count == 0 || o.NeedsRetake)
             {
                 v.Say(v.Customer.Has(Trait.Impatient) ? "We're not even done?" : "So... no photo?");
                 return false;
@@ -77,6 +78,17 @@ namespace LegitEnough.Sim
             if (o.Status == OrderStatus.AwaitingPhoto) o.Status = OrderStatus.InProduction;
 
             v.ClearLines();
+            if (v.Retake)
+            {
+                // The player's own retake: fixed lines (no dice), back to the bench if there's room.
+                v.Retake = false;
+                if (FreeBenchSeat(v) >= 0)
+                {
+                    v.Say(Lines.RetakeDone);
+                    Then(v, () => WalkTo(v, Spot.Bench, () => v.Phase = VisitPhase.Waiting));
+                    return true;
+                }
+            }
             v.Say(Lines.AfterPhoto(v.Customer, Rng));
             if (o.WaitsInShop && FreeBenchSeat(v) >= 0)
             {
@@ -91,6 +103,59 @@ namespace LegitEnough.Sim
                 LeaveAfterLines(v);
             }
             return true;
+        }
+
+        /// <summary>
+        /// The player wants a better photo of someone whose order already has one: they're waiting on
+        /// the bench (or at the counter for their booklet), nothing's handed over yet, and the stool is free.
+        /// </summary>
+        public bool CanCallBackForPhoto(int visitId)
+        {
+            var v = GetVisit(visitId);
+            if (v == null || v.Moving || v.Leaving || v.Phase == VisitPhase.Gone) return false;
+            var o = v.Order;
+            if (o == null || !o.IsOpen || o.Status == OrderStatus.AwaitingPhoto || o.NeedsRetake) return false;
+            if (v.Holding != null || v.PendingHandover != null) return false;
+            bool bench = v.Phase == VisitPhase.Waiting && v.To == Spot.Bench;
+            bool counter = v.Phase == VisitPhase.AwaitingHandover && v.To == Spot.Counter;
+            if (!bench && !counter) return false;
+            return StoolFree(v) && Photos.ForCustomer(v.Customer.Id).Count > 0;
+        }
+
+        /// <summary>
+        /// "One more photo?" Calls them back to the stool (costs a little patience; fed-up customers
+        /// say no). Their kept photos stay: the editor picks which one goes in. A booklet already made
+        /// stays on the desk; print again with the new photo. Draws no dice, so it never changes what
+        /// happens next in the shop.
+        /// </summary>
+        public bool CallBackForPhoto(int visitId)
+        {
+            if (!CanCallBackForPhoto(visitId)) return false;
+            var v = GetVisit(visitId);
+            bool tutorialGuest = TutorialActive && v.Beat?.BeatId == StoryCast.SamirBeatId;
+            if (!tutorialGuest && v.PatienceFraction < Balance.RetakeRefuseBelow)
+            {
+                v.ClearLines();
+                v.Say(Lines.RetakeRefused);
+                return false;
+            }
+            v.Patience -= v.PatienceMax * Balance.RetakePatienceCost;
+            v.Retake = true;
+            v.Retakes++;
+            v.RetakeAfterPhoto = -1;
+            foreach (var p in Photos.ForCustomer(v.Customer.Id)) v.RetakeAfterPhoto = Math.Max(v.RetakeAfterPhoto, p.Id);
+            v.ClearLines();
+            v.Say(Lines.RetakeCalled(v.Customer));
+            WalkTo(v, Spot.Stool, () => SitForRetake(v));
+            return true;
+        }
+
+        void SitForRetake(Visit v)
+        {
+            v.Phase = VisitPhase.PhotoSitting;
+            // A fresh sitting (they shift on the stool, blink on their own clock), from its own seed.
+            ulong salt = (ulong)(v.Id * 7919 + v.Customer.Id) + (ulong)v.Retakes * 104729UL;
+            v.Subject = new PhotoSubject(v.Customer, Rng.For(Seed, salt));
         }
 
         // ------------------------------------------------------------------ the computer
@@ -205,7 +270,8 @@ namespace LegitEnough.Sim
                 o.Document = DeskDocuments.Find(d => d.OrderId == o.Id);
                 if (o.IsOpen)
                 {
-                    if (o.Document != null) o.Status = OrderStatus.Ready;
+                    if (o.NeedsRetake) o.Status = OrderStatus.AwaitingPhoto;
+                    else if (o.Document != null) o.Status = OrderStatus.Ready;
                     else o.Status = Photos.ForCustomer(o.CustomerId).Count > 0 ? OrderStatus.InProduction : OrderStatus.AwaitingPhoto;
                 }
             }
@@ -261,9 +327,12 @@ namespace LegitEnough.Sim
             Finding worst = default;
             float worstScore = 0f;
             int noticed = 0;
+            // The demo's rush client read this morning's paper: he checks the French background.
+            bool rulesReader = IsDemo && v.Beat?.BeatId == DemoCast.UrgentBeatId;
             foreach (var f in report.Findings)
             {
                 float n = IssueInfo.Noticeability(f);
+                if (rulesReader && f.Issue == Issue.WrongBackdrop) n = 1f;
                 if (n <= 0f || !Rng.Chance(Math.Min(1f, n * scrutiny))) continue;
                 noticed++;
                 float s = n * (f.Penalty + (1f - f.Multiplier) * 100f);
@@ -274,11 +343,14 @@ namespace LegitEnough.Sim
                 }
             }
             v.Noticed = noticed;
+            v.HasComplaint = noticed > 0;
+            v.Complaint = worst;
 
             if (noticed > 0)
             {
                 var docCountry = Country(v.Holding?.Data.CountryId)?.Spec;
-                v.Say(Lines.Complaint(v.Customer, worst, docCountry, Rng));
+                string complaint = Lines.Complaint(v.Customer, worst, docCountry, Rng);
+                v.Say(rulesReader && worst.Issue == Issue.WrongBackdrop ? DemoCast.UrgentBackdropComplaint : complaint);
                 Then(v, () => ShowChoices(v,
                     new Choice(ChoiceIds.FixIt, Lines.Player.FixIt),
                     new Choice(ChoiceIds.TrustMe, Lines.Player.TrustMe)));
@@ -305,9 +377,12 @@ namespace LegitEnough.Sim
             else
             {
                 v.Say(Lines.NotPersuaded(v.Customer, Rng));
-                Then(v, () => ShowChoices(v,
-                    new Choice(ChoiceIds.FixIt, Lines.Player.FixIt),
-                    new Choice(ChoiceIds.GetOut, Lines.Player.GetOut)));
+                if (TutorialActive && v.Beat?.BeatId == StoryCast.SamirBeatId)
+                    Then(v, () => ShowChoices(v, new Choice(ChoiceIds.FixIt, Lines.Player.FixIt)));
+                else
+                    Then(v, () => ShowChoices(v,
+                        new Choice(ChoiceIds.FixIt, Lines.Player.FixIt),
+                        new Choice(ChoiceIds.GetOut, Lines.Player.GetOut)));
             }
         }
 
@@ -345,7 +420,15 @@ namespace LegitEnough.Sim
             string city = string.IsNullOrEmpty(v.Request?.DestinationCity)
                 ? NamePools.DestinationCity(o.CountryId, Rng)
                 : v.Request.DestinationCity;
-            var po = OutcomeModel.Decide(o, v.Customer, country.Risk(Day), Standing.Heat, Clock.Now, city, Rng);
+            // The demo's first job always reports back, on the Day 2 morning card.
+            bool demoSamir = IsDemo && v.Beat?.BeatId == StoryCast.SamirBeatId;
+            var po = OutcomeModel.Decide(o, v.Customer, country.Risk(Day), Standing.Heat, Clock.Now, city, Rng, demoSamir);
+            if (demoSamir)
+            {
+                // Decide still ran (same dice as always); the demo verdict is the passport's quality alone.
+                po.Kind = DemoCast.SamirOutcome(o.Quality?.Final ?? 0f);
+                po.ResolvesAt = DemoCast.SamirOutcomeAt(Clock.Now);
+            }
             PendingOutcomes.Add(po);
             o.OutcomeDay = po.ResolvesAt.Day;
             if (po.Kind == OutcomeKind.Unknown) return;

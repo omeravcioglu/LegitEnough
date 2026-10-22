@@ -1,0 +1,156 @@
+/* LEGIT ENOUGH - the demo's guided Day 1 (TutorialCoach).
+   A sticky note from R. docked in a stage corner, a gold arrow (pixel art from
+   DemoArt.Pointer, scaled 4x) and a pulsing frame around the thing to click.
+   Font sizes stay multiples of 12. Nothing here takes clicks except the SKIP button. */
+
+.le-coach {
+    position: absolute;
+}
+
+/* ---------------------------------------------------------------- the note */
+
+.le-coach__note {
+    position: absolute;
+    width: 440px;
+    background-color: #e2cd48;
+    padding: 18px 20px 14px 20px;
+    border-bottom-width: 6px;
+    border-right-width: 6px;
+    border-color: #9a8a2a;
+    transition-duration: 0.12s;
+    transition-property: background-color;
+}
+.le-coach__note--done { background-color: #f4e27a; }
+.le-coach__note--final { background-color: #eed65a; border-color: #a8942a; }
+
+.le-coach__tape {
+    position: absolute;
+    top: -14px;
+    left: 170px;
+    width: 100px;
+    height: 28px;
+    background-color: rgba(232, 222, 176, 0.82);
+}
+
+.le-coach__head {
+    justify-content: space-between;
+    margin-bottom: 8px;
+    border-bottom-width: 3px;
+    border-color: rgba(42, 36, 32, 0.25);
+    padding-bottom: 4px;
+}
+.le-coach__from {
+    -unity-font-definition: resource("LegitEnough/Fonts/LegitStamp");
+    font-size: 24px;
+    color: #2a2420;
+}
+.le-coach__count {
+    font-size: 24px;
+    color: #6a5a20;
+}
+
+.le-coach__text {
+    font-size: 24px;
+    color: #2a2420;
+    margin-bottom: 4px;
+}
+.le-coach__extra {
+    font-size: 24px;
+    color: #8a2a1c;
+    margin-top: 4px;
+}
+/* A tip under the order (not a warning): quieter ink, a little rule above it. */
+.le-coach__extra--aside {
+    color: #5a4a20;
+    border-top-width: 2px;
+    border-color: rgba(42, 36, 32, 0.2);
+    padding-top: 4px;
+}
+
+.le-coach__foot {
+    justify-content: space-between;
+    margin-top: 10px;
+}
+.le-coach__sign {
+    -unity-font-definition: resource("LegitEnough/Fonts/LegitStamp");
+    font-size: 24px;
+    color: #2a2420;
+}
+
+/* Two classes so it wins over .le-btn whatever order the sheets load in. */
+.le-coach__note .le-coach__skip {
+    font-size: 24px;
+    padding: 2px 10px 4px 10px;
+    margin: 0;
+    background-color: rgba(0, 0, 0, 0);
+    border-width: 3px;
+    border-color: #8a7a2a;
+    color: #3a3018;
+}
+.le-coach__note .le-coach__skip:hover {
+    background-color: rgba(42, 36, 32, 0.12);
+    border-color: #2a2420;
+}
+
+/* "GOOD." stamped on the note for a moment when a step is finished. It lands on the
+   header row, over the counter (faded out meanwhile), never on the new instruction. */
+.le-coach__stamp {
+    position: absolute;
+    right: 14px;
+    top: 4px;
+    -unity-font-definition: resource("LegitEnough/Fonts/LegitStamp");
+    font-size: 36px;
+    color: #c0392b;
+    border-width: 3px;
+    border-color: #c0392b;
+    padding: 0 8px 2px 8px;
+    background-color: rgba(226, 205, 72, 0.9);
+}
+
+/* ---------------------------------------------------------------- pointing */
+
+.le-coach__pointer {
+    position: absolute;
+}
+.le-coach__ring {
+    position: absolute;
+    border-width: 4px;
+    border-color: #e0a83a;
+}
+
+/* ---------------------------------------------------------------- shop and paper fixes
+   (loaded after Main.uss in both editions, so these win over the base rules) */
+
+/* The corner hint wraps before the NO REFUNDS plaque on the counter (art x 206+). */
+.le-hint {
+    max-width: 780px;
+}
+
+/* The booklet's caption sits above the book on a plate of its own, not on the desk art. */
+.le-passport__who {
+    background-color: rgba(20, 16, 12, 0.92);
+    color: #d8cbb0;
+    padding: 4px 14px 6px 14px;
+    border-width: 2px;
+    border-color: rgb(60, 50, 40);
+}
+
+/* ---------------------------------------------------------------- another photo
+   The camera's kept-photo row ends with a short line saying the customer can be called back. */
+.le-cam-panel__retake {
+    flex-shrink: 1;
+    flex-grow: 1;
+    align-self: center;
+    margin-left: 12px;
+    font-size: 24px;
+}
+
+/* The editor's photo picker: what's in use, what's newest. */
+.le-os-photo__tag {
+    font-size: 24px;
+    -unity-text-align: middle-center;
+    color: var(--le-os-lo);
+}
+.le-os-photo--selected > .le-os-photo__tag {
+    color: var(--le-os-title);
+}

@@ -31,6 +31,9 @@ namespace LegitEnough.Game
         DataPageView _preview;
         Label _printerLine;
         float _refreshTimer;
+        // The current app's main scroll list, kept in place when the app re-renders itself.
+        ScrollView _scroll;
+        string _scrollKey;
 
         public ComputerView(GameRoot game) : base(game, "le-overlay--dim")
         {
@@ -43,7 +46,7 @@ namespace LegitEnough.Game
             Ui.Text("OFFICIAL-ISH OS", "le-os-bar__title", bar);
             _barClock = Ui.Text("", "le-os-bar__item", bar);
             _barCash = Ui.Text("", "le-os-bar__item", bar);
-            Ui.Btn("X", Close, "le-os-close", bar);
+            Ui.Btn("X", Close, "le-os-close", bar).name = "os-close";
 
             var body = Ui.El("le-os-body", screen);
             var nav = Ui.El("le-os-nav", body);
@@ -76,7 +79,7 @@ namespace LegitEnough.Game
             Render(true);
         }
 
-        /// <summary>A desktop icon with its label underneath.</summary>
+        /// <summary>A desktop icon with its label underneath, named "nav-{icon}" for the tutorial.</summary>
         void AddNav(VisualElement nav, App app, string label, string icon)
         {
             var b = Ui.Btn("", () =>
@@ -84,6 +87,7 @@ namespace LegitEnough.Game
                 _app = app;
                 Render(true);
             }, "le-os-nav__item", nav);
+            b.name = "nav-" + icon;
             var img = UiArt.Image(UiArt.Icon(icon), 3, "le-os-nav__icon");
             img.pickingMode = PickingMode.Ignore;
             b.Add(img);
@@ -92,6 +96,12 @@ namespace LegitEnough.Game
             _nav[app] = b;
             _navLabels[app] = l;
         }
+
+        /// <summary>The app on screen: orders, messages, editor, clients, news or shop (read by the tutorial coach).</summary>
+        public string CurrentApp => _app.ToString().ToLowerInvariant();
+
+        /// <summary>The order open in the editor (0: none).</summary>
+        public int EditorOrderId => _orderId ?? 0;
 
         public void OpenEditor(int orderId)
         {
@@ -128,6 +138,8 @@ namespace LegitEnough.Game
             _barCash.SetTextIfChanged(Labels.Money(S.Ledger.Cash));
             foreach (var kv in _nav) kv.Value.EnableInClassList("le-os-nav__item--active", kv.Key == _app);
             _navLabels[App.Messages].SetTextIfChanged(S.Inbox.Unread > 0 ? $"MESSAGES ({S.Inbox.Unread})" : "MESSAGES");
+            // Demo: the Day-2 sale shows on the desktop, not only inside the SHOP.
+            if (S.IsDemo) _navLabels[App.Shop].SetTextIfChanged(S.SaleActive ? "SHOP: SALE" : "SHOP");
 
             _preview?.Refresh();
             if (_printerLine != null) _printerLine.SetTextIfChanged(PrinterLine());
@@ -155,9 +167,13 @@ namespace LegitEnough.Game
             string key = _app + "|" + StateKey();
             if (!force && key == _key) return;
             _key = key;
+            // Re-rendering the same view (a click, a payment) keeps its scroll position.
+            string scrollKey = _app + ":" + (_app == App.Editor ? _orderId : null);
+            Vector2? keep = _scroll != null && scrollKey == _scrollKey ? _scroll.scrollOffset : (Vector2?)null;
             _main.Clear();
             _preview = null;
             _printerLine = null;
+            _scroll = null;
             switch (_app)
             {
                 case App.Orders: RenderOrders(); break;
@@ -167,7 +183,30 @@ namespace LegitEnough.Game
                 case App.News: RenderNews(); break;
                 case App.Shop: RenderShop(); break;
             }
+            _scrollKey = _scroll != null ? _app + ":" + (_app == App.Editor ? _orderId : null) : null;
+            if (keep.HasValue && _scroll != null && keep.Value != Vector2.zero) KeepScroll(_scroll, keep.Value);
             RenderPinned();
+        }
+
+        /// <summary>A vertical list for the monitor: no horizontal scroller (a USS rule can't hide it).</summary>
+        static ScrollView VScroll(string classes, VisualElement parent)
+        {
+            var sv = new ScrollView(ScrollViewMode.Vertical) { horizontalScrollerVisibility = ScrollerVisibility.Hidden };
+            Ui.AddClasses(sv, classes);
+            parent.Add(sv);
+            return sv;
+        }
+
+        /// <summary>Restores a scroll offset once the rebuilt content has been laid out.</summary>
+        static void KeepScroll(ScrollView sv, Vector2 offset)
+        {
+            EventCallback<GeometryChangedEvent> cb = null;
+            cb = _ =>
+            {
+                sv.contentContainer.UnregisterCallback(cb);
+                sv.scrollOffset = offset;
+            };
+            sv.contentContainer.RegisterCallback(cb);
         }
 
         string StateKey()
@@ -293,15 +332,14 @@ namespace LegitEnough.Game
             Ui.Text("MESSAGES", "le-os-h1", _main);
             if (S.InternetDown) Ui.Text("(no connection - new messages will arrive later)", "le-os-bad", _main);
             var cols = Ui.El("le-os-cols", _main);
-            var list = new ScrollView();
-            list.AddToClassList("le-os-list");
-            cols.Add(list);
+            var list = _scroll = VScroll("le-os-list", cols);
             var reader = Ui.El("le-os-reader", cols);
             if (S.Inbox.Messages.Count == 0) list.Add(Ui.Text("Inbox empty.", "le-os-muted"));
             if (_messageId == null && S.Inbox.Messages.Count > 0) _messageId = S.Inbox.Messages[0].Id;
             foreach (var m in S.Inbox.Messages)
             {
                 var row = Ui.El("le-os-msg le-clickable");
+                row.name = "msg-" + m.Id; // the tutorial coach points at R.'s notes
                 row.EnableInClassList("le-os-msg--unread", !m.Read);
                 row.EnableInClassList("le-os-msg--selected", m.Id == _messageId);
                 Ui.Text(m.From, "le-os-msg__from", row);
@@ -364,32 +402,29 @@ namespace LegitEnough.Game
             var draft = order.Draft;
             var customer = S.Customer(order.CustomerId);
             var cols = Ui.El("le-os-cols", _main);
-            var form = new ScrollView();
-            form.AddToClassList("le-os-form");
-            cols.Add(form);
+            var form = _scroll = VScroll("le-os-form", cols);
             var right = Ui.El("le-os-preview", cols);
 
-            // 1. Template.
+            // 1. Template. The blocks below carry names ("editor-...") the tutorial points at.
             Section(form, "1. TEMPLATE");
-            var tpl = Ui.El("le-row le-row--wrap", form);
-            foreach (var c in S.CountryList)
+            if (S.IsDemo) DemoTemplates(form, draft);
+            else
             {
-                if (!c.Owned) continue;
-                string cid = c.Id;
-                var b = Ui.Btn(c.Spec.Name.ToUpperInvariant(), () =>
-                {
-                    draft.CountryId = cid;
-                    Render(true);
-                }, "le-os-btn", tpl);
-                b.EnableInClassList("le-os-btn--selected", draft.CountryId == cid);
+                var tpl = Ui.El("le-row le-row--wrap", form);
+                tpl.name = "editor-template";
+                foreach (var c in S.CountryList)
+                    if (c.Owned) TemplateButton(tpl, draft, c);
             }
             var typeRow = Ui.El("le-row", form);
             Ui.Btn("PASSPORT", () => { }, "le-os-btn le-os-btn--selected", typeRow);
-            Ui.Btn("VISA (not licensed)", () => { }, "le-os-btn", typeRow).SetEnabled(false);
+            if (S.IsDemo) LockedButton(typeRow, "VISA", "Visas are").name = "editor-visa";
+            else Ui.Btn("VISA (not licensed)", () => { }, "le-os-btn", typeRow).SetEnabled(false);
 
             // 2. Format.
-            Section(form, "2. FORMAT");
-            var catRow = Ui.El("le-row le-row--wrap", form);
+            var format = Ui.El(null, form);
+            format.name = "editor-format";
+            Section(format, "2. FORMAT");
+            var catRow = Ui.El("le-row le-row--wrap", format);
             Ui.Text("CATEGORY", "le-os-label", catRow);
             foreach (DocCategory cat in Enum.GetValues(typeof(DocCategory)))
             {
@@ -401,7 +436,7 @@ namespace LegitEnough.Game
                 }, "le-os-btn le-os-btn--small", catRow);
                 b.EnableInClassList("le-os-btn--selected", draft.Category == cat);
             }
-            var coverRow = Ui.El("le-row le-row--wrap", form);
+            var coverRow = Ui.El("le-row le-row--wrap", format);
             Ui.Text("COVER", "le-os-label", coverRow);
             foreach (CoverColor cov in Enum.GetValues(typeof(CoverColor)))
             {
@@ -414,7 +449,7 @@ namespace LegitEnough.Game
                 b.style.borderLeftColor = Looks.Of(cov);
                 b.EnableInClassList("le-os-btn--selected", draft.Cover == cov);
             }
-            var pageRow = Ui.El("le-row le-row--wrap", form);
+            var pageRow = Ui.El("le-row le-row--wrap", format);
             Ui.Text("PAGES", "le-os-label", pageRow);
             foreach (int pages in new[] { 24, 32, 48, 64 })
             {
@@ -428,17 +463,19 @@ namespace LegitEnough.Game
             }
 
             // 3. Data.
-            Section(form, "3. DATA");
+            var data = Ui.El(null, form);
+            data.name = "editor-data";
+            Section(data, "3. DATA");
             var spec = S.Country(draft.CountryId)?.Spec;
             if (spec == null)
             {
-                Ui.Text("Pick a template first: the fields depend on it.", "le-os-muted", form);
+                Ui.Text("Pick a template first: the fields depend on it.", "le-os-muted", data);
             }
             else
             {
                 if (S.Computer.ImportsNames || S.Computer.AutoFormatsDates)
                 {
-                    var tools = Ui.El("le-row", form);
+                    var tools = Ui.El("le-row", data);
                     if (S.Computer.ImportsNames)
                         Ui.Btn("IMPORT NAMES", () =>
                         {
@@ -452,31 +489,44 @@ namespace LegitEnough.Game
                             Render(true);
                         }, "le-os-btn le-os-btn--small", tools);
                 }
-                foreach (var f in spec.Passport.PersonalFields) FieldEditor(form, draft, f);
-                Ui.Text($"Dates: use the template's format. Today is on the calendar (and up in the corner).", "le-os-muted", form);
-                FieldEditor(form, draft, DocField.DateOfIssue);
-                FieldEditor(form, draft, DocField.DateOfExpiry);
-                var numRow = Ui.El("le-row", form);
+                foreach (var f in spec.Passport.PersonalFields) FieldEditor(data, draft, f);
+                Ui.Text($"Dates: use the template's format. Today is on the calendar (and up in the corner).", "le-os-muted", data);
+                FieldEditor(data, draft, DocField.DateOfIssue);
+                FieldEditor(data, draft, DocField.DateOfExpiry);
+                var numRow = Ui.El("le-row", data);
                 var numField = TextFor(draft, DocField.DocumentNumber, numRow);
+                numField.AddToClassList("le-os-input--num");
                 Ui.Btn("GENERATE", () =>
                 {
                     numField.value = S.GenerateDocumentNumber(order.Id);
-                }, "le-os-btn le-os-btn--small", numRow);
+                }, "le-os-btn le-os-btn--small le-os-btn--fixed", numRow).name = "editor-docnumber";
             }
 
             // 4. Photo.
-            Section(form, "4. PHOTO");
+            var photoBlock = Ui.El(null, form);
+            photoBlock.name = "editor-photo";
+            Section(photoBlock, "4. PHOTO");
             var photos = S.Photos.ForCustomer(order.CustomerId);
-            if (photos.Count == 0) Ui.Text("No kept photos of this client yet. Photograph them at the stool.", "le-os-muted", form);
-            var photoRow = Ui.El("le-row le-row--wrap", form);
-            foreach (var ph in photos)
+            if (photos.Count == 0) Ui.Text("No kept photos of this client yet. Photograph them at the stool.", "le-os-muted", photoBlock);
+            else if (photos.Count > 1) Ui.Text("Newest first. Click the one that goes on the passport.", "le-os-muted", photoBlock);
+            var photoRow = Ui.El("le-row le-row--wrap", photoBlock);
+            // Newest first: after a retake the new shot is the first one you see.
+            for (int pi = photos.Count - 1; pi >= 0; pi--)
             {
+                var ph = photos[pi];
                 var holder = Ui.El("le-os-photo le-clickable", photoRow);
-                holder.EnableInClassList("le-os-photo--selected", draft.PhotoId == ph.Id);
+                holder.name = "editor-photo-" + ph.Id;
+                bool inUse = draft.PhotoId == ph.Id;
+                holder.EnableInClassList("le-os-photo--selected", inUse);
                 var thumb = new PortraitView("le-thumb") { Capture = ph };
                 thumb.pickingMode = PickingMode.Ignore;
                 holder.Add(thumb);
                 thumb.View = ph.Crop;
+                if (photos.Count > 1 && (inUse || pi == photos.Count - 1))
+                {
+                    var tag = Ui.Text(inUse ? "IN USE" : "NEWEST", "le-os-photo__tag", holder);
+                    tag.pickingMode = PickingMode.Ignore;
+                }
                 int pid = ph.Id;
                 holder.RegisterCallback<ClickEvent>(_ =>
                 {
@@ -485,6 +535,9 @@ namespace LegitEnough.Game
                     Render(true);
                 });
             }
+
+            if (photos.Count > 0)
+                Ui.Text("Want a better one? Close the computer and click the photo corner: they sit again.", "le-os-muted", photoBlock);
 
             // Preview + print.
             Ui.Text("PREVIEW", "le-os-label", right);
@@ -495,12 +548,89 @@ namespace LegitEnough.Game
             Ui.Btn($"PRINT  ({Labels.Money(Balance.PrintCost)})", () =>
             {
                 if (S.PrintDraft(order.Id) != null) Sfx.Play(SfxId.Key);
-            }, "le-os-btn le-os-btn--primary", printRow);
+            }, "le-os-btn le-os-btn--primary", printRow).name = "editor-print";
             _printerLine = Ui.Text(PrinterLine(), "le-os-muted", right);
             Ui.Text("Nothing is checked for you. Read it over before you print.", "le-os-muted", right);
         }
 
         static void Section(VisualElement parent, string title) => Ui.Text(title, "le-os-h2", parent);
+
+        /// <summary>An owned country's template button, named "tpl-{id}".</summary>
+        void TemplateButton(VisualElement parent, DocumentDraft draft, CountryState c)
+        {
+            string cid = c.Id;
+            var b = Ui.Btn(c.Spec.Name.ToUpperInvariant(), () =>
+            {
+                draft.CountryId = cid;
+                Render(true);
+            }, "le-os-btn", parent);
+            b.name = "tpl-" + cid;
+            b.EnableInClassList("le-os-btn--selected", draft.CountryId == cid);
+        }
+
+        /// <summary>
+        /// The demo's template picker: owned templates as usual, then the playable countries still to
+        /// get (greyed flags with what they take: a price in the SHOP or the reputation they need), then
+        /// the full-game countries as padlocked flags under a stamp. A click on a greyed flag says why.
+        /// Every country keeps its "tpl-{id}" name.
+        /// </summary>
+        void DemoTemplates(VisualElement form, DocumentDraft draft)
+        {
+            var box = Ui.El(null, form);
+            box.name = "editor-template";
+            var owned = Ui.El("le-row le-row--wrap", box);
+            var shop = Ui.El("le-row le-os-tplrow", box);
+            Ui.Text("BUY IN SHOP", "le-os-label le-os-tplrow__head", shop);
+            var rep = Ui.El("le-row le-os-tplrow", box);
+            Ui.Text("NEEDS REP", "le-os-label le-os-tplrow__head", rep);
+            var locked = Ui.El("le-row le-os-tplrow", box);
+            var head = Ui.El("le-os-tplrow__head", locked);
+            head.Add(FullGameLocks.Badge(2, null));
+            bool toBuy = false, toEarn = false;
+            foreach (var c in S.CountryList)
+            {
+                if (c.Owned)
+                {
+                    TemplateButton(owned, draft, c);
+                    continue;
+                }
+                if (c.FullGameOnly)
+                {
+                    string subject = c.Spec.Name + " is";
+                    var lockTile = Ui.Btn("", () => FullGameLocks.Nudge(Game, subject), "le-os-btn le-os-btn--tile le-os-btn--locked", locked);
+                    lockTile.name = "tpl-" + c.Id;
+                    lockTile.Add(FullGameLocks.Flag(c.Id, 2, null));
+                    continue;
+                }
+                bool buyable = c.Requestable(S.Standing.Reputation);
+                string tip = buyable
+                    ? $"{c.Spec.Name}: buy the section in the SHOP."
+                    : $"{c.Spec.Name} needs {c.Spec.UnlockReputation} reputation.";
+                var tile = Ui.Btn("", () => Game.Toasts.Show(tip, ""), "le-os-btn le-os-btn--tile le-os-btn--tile-off", buyable ? shop : rep);
+                tile.name = "tpl-" + c.Id;
+                var flag = UiArt.Image(UiArt.Flag(c.Id), 2);
+                flag.pickingMode = PickingMode.Ignore;
+                tile.Add(flag);
+                Ui.Text(buyable ? Labels.Money(c.Spec.HandbookPrice) : c.Spec.UnlockReputation + " REP", "le-os-tile__cap", tile).pickingMode = PickingMode.Ignore;
+                if (buyable) toBuy = true;
+                else toEarn = true;
+            }
+            shop.Show(toBuy);
+            rep.Show(toEarn);
+        }
+
+        /// <summary>
+        /// A FULL GAME button: optional label, padlock and the red stamp. It stays enabled (a disabled
+        /// button would fade the stamp) and answers a click with the wishlist nudge.
+        /// </summary>
+        Button LockedButton(VisualElement parent, string label, string subject)
+        {
+            var b = Ui.Btn("", () => FullGameLocks.Nudge(Game, subject), "le-os-btn le-os-btn--locked", parent);
+            if (label != null) Ui.Text(label, "le-os-lock__label", b).pickingMode = PickingMode.Ignore;
+            b.Add(FullGameLocks.Padlock(2, "le-os-lock__padlock"));
+            b.Add(FullGameLocks.Badge(2, null));
+            return b;
+        }
 
         void FieldEditor(VisualElement form, DocumentDraft draft, DocField f)
         {
@@ -555,11 +685,9 @@ namespace LegitEnough.Game
         void RenderClients()
         {
             Ui.Text("CLIENTS", "le-os-h1", _main);
-            Ui.Text("Your name on the street: " + Standing.Name(S.Standing.Tier), "le-os-muted", _main);
+            Ui.Text("Your name on the street: " + StreetName.Of(S.Standing.Tier), "le-os-muted", _main);
             var cols = Ui.El("le-os-cols", _main);
-            var list = new ScrollView();
-            list.AddToClassList("le-os-list");
-            cols.Add(list);
+            var list = _scroll = VScroll("le-os-list", cols);
             var detail = Ui.El("le-os-reader", cols);
             var records = new List<ClientRecord>(S.Clients.Records);
             records.Sort((a, b) => b.LastVisitDay.CompareTo(a.LastVisitDay));
@@ -620,10 +748,9 @@ namespace LegitEnough.Game
         {
             Ui.Text("NEWS", "le-os-h1", _main);
             var cols = Ui.El("le-os-cols", _main);
-            var feed = new ScrollView();
-            Ui.AddClasses(feed, "le-os-list le-os-list--news");
-            cols.Add(feed);
-            var watch = Ui.El("le-os-reader", cols);
+            var feed = _scroll = VScroll("le-os-list le-os-list--news", cols);
+            // The watch scrolls too: rows keep their height instead of being squeezed under each other.
+            var watch = VScroll("le-os-reader le-os-watch", cols);
 
             if (S.News.Count == 0) feed.Add(Ui.Text("Quiet day. No headlines yet.", "le-os-muted"));
             for (int i = S.News.Count - 1; i >= 0 && i >= S.News.Count - 14; i--)
@@ -639,46 +766,158 @@ namespace LegitEnough.Game
             Ui.Text("BORDER WATCH", "le-os-h2", watch);
             Ui.Text("Attention on the shop: " + Standing.Name(S.Standing.HeatLevel), "le-os-text", watch);
             var head = Ui.El("le-os-row le-os-row--head", watch);
-            foreach (var h in new[] { "COUNTRY", "RISK", "DEMAND", "JOBS" }) Ui.Text(h, "le-os-cell", head);
+            Ui.Text("COUNTRY", "le-os-cell le-os-cell--country", head);
+            Ui.Text("RISK", "le-os-cell le-os-cell--risk", head);
+            Ui.Text("DEMAND", "le-os-cell le-os-cell--demand", head);
+            Ui.Text("JOBS", "le-os-cell le-os-cell--jobs", head);
+            var fullGame = new List<CountryState>();
             foreach (var c in S.CountryList)
             {
-                if (!c.Owned && S.Standing.Reputation < c.Spec.UnlockReputation) continue;
+                if (c.FullGameOnly)
+                {
+                    fullGame.Add(c);
+                    continue;
+                }
+                bool requestable = c.Requestable(S.Standing.Reputation);
+                if (!requestable && !S.IsDemo) continue;
                 var row = Ui.El("le-os-row", watch);
-                Ui.Text(c.Spec.Name.ToUpperInvariant() + (c.Owned ? "" : " (no handbook)"), "le-os-cell", row);
+                Ui.Text(c.Spec.Name.ToUpperInvariant(), "le-os-cell le-os-cell--country", row);
+                if (!requestable)
+                {
+                    // Demo: a playable country you can't reach yet, greyed with what it takes.
+                    row.AddToClassList("le-os-row--locked");
+                    Ui.Text($"NEEDS {c.Spec.UnlockReputation} REP", "le-os-cell le-os-cell--needs", row);
+                    continue;
+                }
                 var lvl = c.RiskLevel(S.Day);
-                var risk = Ui.Text(lvl.ToString().ToUpperInvariant(), "le-os-cell", row);
+                var risk = Ui.Text(lvl.ToString().ToUpperInvariant(), "le-os-cell le-os-cell--risk", row);
                 risk.style.color = Looks.Of(lvl);
                 float demand = c.Demand(S.Day);
-                Ui.Text(demand > 1.01f ? "HIGH" : "normal", "le-os-cell", row);
+                Ui.Text(demand > 1.01f ? "HIGH" : "normal", "le-os-cell le-os-cell--demand", row);
+                var jobs = Ui.El("le-os-cell le-os-cell--jobs", row);
                 if (c.Owned)
                 {
                     string cid = c.Id;
-                    var toggle = Ui.Btn(c.AcceptingJobs ? "TAKING JOBS" : "NOT TAKING", () =>
+                    Ui.Btn(c.AcceptingJobs ? "TAKING JOBS" : "NOT TAKING", () =>
                     {
                         S.SetAcceptingJobs(cid, !S.Country(cid).AcceptingJobs);
                         Render(true);
-                    }, "le-os-btn le-os-btn--small" + (c.AcceptingJobs ? "" : " le-os-btn--off"), row);
+                    }, "le-os-btn le-os-btn--small" + (c.AcceptingJobs ? "" : " le-os-btn--off"), jobs);
                 }
-                else Ui.Text("-", "le-os-cell", row);
+                else Ui.Text("no handbook", "le-os-muted", jobs);
             }
-            Ui.Text("Turning a country off means fewer of those customers walk in.", "le-os-muted", watch);
+            // Demo: the full-game countries share one greyed row (each flag answers for itself).
+            if (fullGame.Count > 0)
+            {
+                var row = Ui.El("le-os-row le-os-row--locked le-os-row--fold le-clickable", watch);
+                row.name = "watch-lock-all";
+                var more = Ui.El("le-os-cell le-os-watch__more", row);
+                var flags = Ui.El("le-row le-row--wrap", more);
+                var names = new List<string>();
+                foreach (var c in fullGame)
+                {
+                    var flag = FullGameLocks.Flag(c.Id, 2, "le-os-watch__flag");
+                    flag.name = "watch-lock-" + c.Id;
+                    flag.pickingMode = PickingMode.Position;
+                    string subject = c.Spec.Name + " is";
+                    flag.RegisterCallback<ClickEvent>(e =>
+                    {
+                        e.StopPropagation();
+                        FullGameLocks.Nudge(Game, subject);
+                    });
+                    flags.Add(flag);
+                    names.Add(c.Spec.Name.ToUpperInvariant());
+                }
+                Ui.Text(string.Join(", ", names), "le-os-watch__names", more);
+                var span = Ui.El("le-os-cell le-os-cell--locked le-os-watch__stamp", row);
+                span.Add(FullGameLocks.Padlock(2, "le-os-lock__padlock"));
+                span.Add(FullGameLocks.Badge(2, null));
+                row.RegisterCallback<ClickEvent>(_ => FullGameLocks.Nudge(Game, "These are"));
+            }
+            Ui.Text(S.IsDemo
+                ? "Not taking a country? Its clients get turned away at the counter."
+                : "Turning a country off means fewer of those customers walk in.", "le-os-muted", watch);
         }
 
         // ================================================================== SHOP
 
         void RenderShop()
         {
-            Ui.Text("SHOP", "le-os-h1", _main);
-            Ui.Text("Cash: " + Labels.Money(S.Ledger.Cash) + (S.SaleActive ? "    SALE: 25% OFF EQUIPMENT" : ""), "le-os-text", _main);
-            var scroll = new ScrollView();
-            Ui.AddClasses(scroll, "le-os-form le-os-form--full");
-            _main.Add(scroll);
+            Ui.Text("SHOP", "le-os-h1", _main).name = "shop-title";
+            int sale = SalePercent();
+            string saleText = !S.SaleActive ? "" : sale > 0 ? $"    SALE: {sale}% OFF EQUIPMENT" : "    SALE ON EQUIPMENT";
+            Ui.Text("Cash: " + Labels.Money(S.Ledger.Cash) + saleText, "le-os-text", _main);
+            var scroll = _scroll = VScroll("le-os-form le-os-form--full", _main);
 
+            // The demo puts the handbook sections first: they're what R. sends you here for.
+            var fullGame = new List<CountryState>();
+            if (S.IsDemo) HandbookSections(scroll, fullGame);
+            EquipmentSection(scroll);
+            if (!S.IsDemo) HandbookSections(scroll, fullGame);
+
+            // Demo: the full-game sections after everything you can buy, then the visa license.
+            if (fullGame.Count > 0) Section(scroll, "IN THE FULL GAME");
+            foreach (var c in fullGame)
+            {
+                var row = Ui.El("le-os-shoprow le-os-shoprow--locked", scroll);
+                row.name = "shop-lock-" + c.Id;
+                var col = Ui.El("le-col", row);
+                Ui.Text($"{c.Spec.Name.ToUpperInvariant()}  (tier {c.Spec.Tier})", "le-os-text le-os-strong", col);
+                Ui.Text($"{c.Spec.Adjective} jobs are in the full game.", "le-os-muted", col);
+                LockedButton(row, null, c.Spec.Name + " is");
+            }
+            if (S.IsDemo)
+            {
+                Section(scroll, "LICENSES");
+                var row = Ui.El("le-os-shoprow le-os-shoprow--locked", scroll);
+                row.name = "shop-lock-VISA";
+                var col = Ui.El("le-col", row);
+                Ui.Text("VISA LICENSE", "le-os-text le-os-strong", col);
+                Ui.Text("Visas as well as passports. More paper, more rules, more money.", "le-os-muted", col);
+                LockedButton(row, null, "Visas are");
+            }
+
+            if (S.PrinterBroken)
+            {
+                Section(scroll, "REPAIRS");
+                var row = Ui.El("le-os-shoprow", scroll);
+                Ui.Text("Printer repair - it'll stop grinding and print at full speed.", "le-os-text", row);
+                var b = Ui.Btn("REPAIR " + Labels.Money(Balance.PrinterRepairCost), () =>
+                {
+                    S.RepairPrinter();
+                    Render(true);
+                }, "le-os-btn", row);
+                b.SetEnabled(S.Ledger.Cash >= Balance.PrinterRepairCost);
+            }
+        }
+
+        /// <summary>The running sale as a percentage, read off the dearest item (prices round to $25).</summary>
+        int SalePercent() => SalePercentOf(S);
+
+        /// <summary>The running equipment sale in percent (0: none). Also read by the tutorial coach.</summary>
+        public static int SalePercentOf(GameSession s)
+        {
+            if (s == null || !s.SaleActive) return 0;
+            EquipmentDef top = null;
+            foreach (var e in EquipmentCatalog.All)
+                if (top == null || e.Price > top.Price) top = e;
+            if (top == null || top.Price <= 0) return 0;
+            float pct = 100f * (1f - s.PriceOf(top) / (float)top.Price);
+            return Mathf.Max(0, Mathf.RoundToInt(pct / 5f) * 5);
+        }
+
+        void EquipmentSection(VisualElement scroll)
+        {
             Section(scroll, "EQUIPMENT");
             foreach (EquipmentSlot slot in Enum.GetValues(typeof(EquipmentSlot)))
             {
                 var current = S.Equipment[slot];
                 var next = EquipmentCatalog.All.Find(e => e.Slot == slot && e.Tier == current.Tier + 1);
+                if (next != null && S.EquipmentLocked(next))
+                {
+                    LockedEquipmentRow(scroll, current, next, false);
+                    continue;
+                }
                 var row = Ui.El("le-os-shoprow", scroll);
                 // What you have → what you'd buy, drawn exactly as they stand in the shop.
                 var pics = Ui.El("le-os-shoppics", row);
@@ -697,19 +936,48 @@ namespace LegitEnough.Game
                 }
                 Ui.Text($"Next: {next.Name} - {next.Blurb}", "le-os-muted", col);
                 int price = S.PriceOf(next);
+                if (price < next.Price) Ui.Text($"On sale. Usually {Labels.Money(next.Price)}.", "le-os-muted le-os-good", col);
                 string id = next.Id;
                 var b = Ui.Btn("BUY " + Labels.Money(price), () =>
                 {
                     if (!S.BuyEquipment(id)) Game.Toasts.Show("Can't afford it.", "bad");
                     Render(true);
                 }, "le-os-btn", row);
+                b.name = "shop-equip-" + slot.ToString().ToLowerInvariant();
                 b.SetEnabled(S.Ledger.Cash >= price);
+                // The demo stops a tier short: show what comes after, locked.
+                var after = EquipmentCatalog.All.Find(e => e.Slot == slot && e.Tier == next.Tier + 1);
+                if (after != null && S.EquipmentLocked(after)) LockedEquipmentRow(scroll, next, after, true);
             }
+        }
 
+        /// <summary>
+        /// Rule updates and sections to buy. The demo lists updates first, then what you can buy, then
+        /// what needs more reputation, and only says customers are asking when one is really coming.
+        /// Full-game countries are collected into <paramref name="fullGame"/> for the end of the page.
+        /// </summary>
+        void HandbookSections(VisualElement scroll, List<CountryState> fullGame)
+        {
             Section(scroll, "HANDBOOK SECTIONS");
+            var list = new List<CountryState>();
             foreach (var c in S.CountryList)
             {
                 if (c.Owned && !c.HandbookOutdated) continue;
+                if (c.FullGameOnly) fullGame.Add(c);
+                else list.Add(c);
+            }
+            if (S.IsDemo)
+            {
+                float rep = S.Standing.Reputation;
+                // Updates, then what you can buy, then the rest, each in catalogue order.
+                var sorted = new List<CountryState>();
+                foreach (var c in list) if (c.Owned) sorted.Add(c);
+                foreach (var c in list) if (!c.Owned && c.Requestable(rep)) sorted.Add(c);
+                foreach (var c in list) if (!c.Owned && !c.Requestable(rep)) sorted.Add(c);
+                list = sorted;
+            }
+            foreach (var c in list)
+            {
                 var row = Ui.El("le-os-shoprow", scroll);
                 var col = Ui.El("le-col", row);
                 string cid = c.Id;
@@ -722,12 +990,16 @@ namespace LegitEnough.Game
                         S.BuyHandbookUpdate(cid);
                         Render(true);
                     }, "le-os-btn", row);
+                    b.name = "shop-update-" + cid;
                     b.SetEnabled(S.Ledger.Cash >= Balance.HandbookUpdateCost);
                     continue;
                 }
-                bool unlocked = S.Standing.Reputation >= c.Spec.UnlockReputation;
+                bool unlocked = c.Requestable(S.Standing.Reputation);
                 Ui.Text($"{c.Spec.Name.ToUpperInvariant()}  (tier {c.Spec.Tier})", "le-os-text le-os-strong", col);
-                Ui.Text(unlocked ? $"Customers are asking. Base price around {Labels.Money(c.Spec.BasePassportPrice)}." : "Nobody asks for this yet. Build your name.", "le-os-muted", col);
+                string line = !unlocked ? "Nobody asks for this yet. Build your name."
+                    : !S.IsDemo || FullGameLocks.ClientBooked(S, cid) ? $"Customers are asking. Base price around {Labels.Money(c.Spec.BasePassportPrice)}."
+                    : $"No {c.Spec.Adjective} clients booked in the demo. Buy it to read the rules.";
+                Ui.Text(line, "le-os-muted", col);
                 if (unlocked)
                 {
                     var b = Ui.Btn("BUY " + Labels.Money(c.Spec.HandbookPrice), () =>
@@ -735,28 +1007,136 @@ namespace LegitEnough.Game
                         if (!S.BuyHandbook(cid)) Game.Toasts.Show("Can't afford it.", "bad");
                         Render(true);
                     }, "le-os-btn", row);
+                    b.name = "shop-buy-" + cid;
                     b.SetEnabled(S.Ledger.Cash >= c.Spec.HandbookPrice);
                 }
+                else if (S.IsDemo) Ui.Text($"NEEDS {c.Spec.UnlockReputation} REP", "le-os-text le-os-strong le-os-needs", row);
             }
+        }
 
-            if (S.PrinterBroken)
+        /// <summary>
+        /// Demo: equipment past the demo's top tier, greyed and padlocked, drawn like an upgrade row
+        /// (<paramref name="from"/> → locked). Either it stands in for the upgrade from what you own,
+        /// or (<paramref name="then"/>) it follows the buyable upgrade as the step after it.
+        /// </summary>
+        void LockedEquipmentRow(VisualElement parent, EquipmentDef from, EquipmentDef locked, bool then)
+        {
+            var row = Ui.El("le-os-shoprow le-os-shoprow--locked", parent);
+            row.name = "shop-lock-" + locked.Id;
+            var pics = Ui.El("le-os-shoppics", row);
+            pics.Add(FullGameLocks.Plain(from.Slot, from.Tier, 2, then ? "le-os-product" : "le-os-product le-os-product--owned"));
+            Ui.Text("→", "le-os-product__arrow", pics);
+            pics.Add(FullGameLocks.Product(locked.Slot, locked.Tier, 2));
+            var col = Ui.El("le-col", row);
+            if (then)
             {
-                Section(scroll, "REPAIRS");
-                var row = Ui.El("le-os-shoprow", scroll);
-                Ui.Text("Printer repair - it'll stop grinding and print at full speed.", "le-os-text", row);
-                var b = Ui.Btn("REPAIR " + Labels.Money(Balance.PrinterRepairCost), () =>
-                {
-                    S.RepairPrinter();
-                    Render(true);
-                }, "le-os-btn", row);
-                b.SetEnabled(S.Ledger.Cash >= Balance.PrinterRepairCost);
+                Ui.Text($"THEN: {locked.Name}", "le-os-text le-os-strong", col);
+                Ui.Text(locked.Blurb, "le-os-muted", col);
             }
+            else
+            {
+                Ui.Text($"{from.Slot.ToString().ToUpperInvariant()}: {from.Name}", "le-os-text le-os-strong", col);
+                Ui.Text($"Next: {locked.Name} - {locked.Blurb}", "le-os-muted", col);
+            }
+            LockedButton(row, null, locked.Name + " is");
         }
 
         static void DrawScanlines(Painter2D p, Rect r)
         {
             var c = new Color(0f, 0f, 0f, 0.13f);
             for (float y = 0f; y < r.height; y += 4f) Draw.Rect(p, new Rect(0f, y, r.width, 1.5f), c);
+        }
+    }
+
+    /// <summary>
+    /// The demo's FULL GAME look, shared by the computer and the handbook: padlocks, greyed flags
+    /// and products, the red stamp, and the wishlist nudge when something locked is clicked.
+    /// Buffers are drawn once and reused (each image still gets its own texture).
+    /// </summary>
+    internal static class FullGameLocks
+    {
+        static PixelBuffer _padlock;
+        static PixelBuffer _badge;
+        static readonly Dictionary<string, PixelBuffer> Flags = new Dictionary<string, PixelBuffer>();
+        static readonly Dictionary<int, PixelBuffer> Products = new Dictionary<int, PixelBuffer>();
+        static readonly Dictionary<int, PixelBuffer> Plains = new Dictionary<int, PixelBuffer>();
+        static string _lastNudge;
+        static float _lastNudgeAt = -10f;
+
+        /// <summary>The longest toast that stays on one line (LegitPixel 24px in the 560px toast box).</summary>
+        const int MaxToastChars = 49;
+
+        /// <summary>
+        /// Demo: is a client for this country really coming (still scheduled, or in the shop now)? Copy
+        /// only says customers are asking when one is. Before Day 2 the Day-2 cast counts as coming.
+        /// </summary>
+        public static bool ClientBooked(GameSession s, string countryId)
+        {
+            if (s.Day < DemoCast.DayTwo)
+                foreach (var b in DemoCast.DayTwoBeats())
+                    if (b.CountryId == countryId) return true;
+            foreach (var a in s.Director.Upcoming)
+                if (a.Kind == ArrivalKind.Story && DemoCast.IsDemoBeat(a.Beat) && a.Beat.CountryId == countryId) return true;
+            foreach (var v in s.Visits)
+                if (v.Phase != VisitPhase.Gone && DemoCast.IsDemoBeat(v.Beat) && v.Beat.CountryId == countryId) return true;
+            return false;
+        }
+
+        public static PixelImage Padlock(int scale, string classes) => UiArt.Image(_padlock ??= DemoArt.Padlock(), scale, classes);
+
+        public static PixelImage Badge(int scale, string classes) => UiArt.Image(_badge ??= DemoArt.FullGameBadge(), scale, classes);
+
+        /// <summary>The country's flag, greyed with a padlock on its corner (16x12: it overhangs a 14x10 flag).</summary>
+        public static PixelImage Flag(string id, int scale, string classes)
+        {
+            if (!Flags.TryGetValue(id, out var b)) Flags[id] = b = DemoArt.LockedFlag(id);
+            return UiArt.Image(b, scale, classes);
+        }
+
+        /// <summary>A piece of equipment as the shop shows it (cached: each one draws a whole room).</summary>
+        public static PixelImage Plain(EquipmentSlot slot, int tier, int scale, string classes)
+        {
+            int key = (int)slot * 10 + tier;
+            if (!Plains.TryGetValue(key, out var b)) Plains[key] = b = UiArt.Equipment(slot, tier);
+            return UiArt.Image(b, scale, classes);
+        }
+
+        /// <summary>A piece of equipment as the shop shows it, drained of colour, padlock in the corner.</summary>
+        public static PixelImage Product(EquipmentSlot slot, int tier, int scale)
+        {
+            int key = (int)slot * 10 + tier;
+            if (!Products.TryGetValue(key, out var b))
+            {
+                b = UiArt.Equipment(slot, tier);
+                var dust = new Color32(122, 116, 106, 255);
+                for (int i = 0; i < b.Px.Length; i++)
+                {
+                    var c = b.Px[i];
+                    if (c.a == 0) continue;
+                    byte l = (byte)((c.r * 30 + c.g * 59 + c.b * 11) / 100);
+                    var grey = Pal.Mix(new Color32(l, l, l, c.a), dust, 0.3f);
+                    b.Px[i] = new Color32(grey.r, grey.g, grey.b, c.a);
+                }
+                var lockArt = DemoArt.Padlock();
+                b.Blit(lockArt, b.W - lockArt.W - 1, b.H - lockArt.H - 1);
+                Products[key] = b;
+            }
+            return UiArt.Image(b, scale, "le-os-product le-os-product--locked");
+        }
+
+        /// <summary>
+        /// "Japan is" → "Japan is in the full game. Wishlist us on Steam!" Once per burst of clicks. A toast
+        /// fits one line of about 50 characters: longer subjects ("United Kingdom is") drop the wishlist
+        /// line rather than wrap (the locked pages and the demo end still carry it).
+        /// </summary>
+        public static void Nudge(GameRoot game, string subject)
+        {
+            string text = subject + " in the full game. Wishlist us on Steam!";
+            if (text.Length > MaxToastChars) text = subject + " in the full game.";
+            if (text == _lastNudge && Time.unscaledTime - _lastNudgeAt < 1.5f) return;
+            _lastNudge = text;
+            _lastNudgeAt = Time.unscaledTime;
+            game.Toasts.Show(text, "");
         }
     }
 }

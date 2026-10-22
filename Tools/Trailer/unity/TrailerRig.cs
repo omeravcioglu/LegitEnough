@@ -397,6 +397,7 @@ namespace LegitEnoughCI
             var toasts = _toasts ? DisplayStyle.Flex : DisplayStyle.None;
             G.Stage.Query(className: "le-toasts").ForEach(e => e.style.display = toasts);
             G.Stage.Query(className: "le-hint").ForEach(e => e.style.display = DisplayStyle.None);
+            G.Stage.Query(className: "le-coach").ForEach(e => e.style.display = DisplayStyle.None);
         }
 
         // ============================================================ cursor
@@ -902,6 +903,7 @@ namespace LegitEnoughCI
             SetupCapture();
             Time.captureDeltaTime = 1f / 60f;
             ulong seed = PickSeed();
+            GameRoot.DemoBuild = false;
             G.NewGame(seed);
             var title = G.Open(new TitleView(G));
             title.Root.style.display = DisplayStyle.None;

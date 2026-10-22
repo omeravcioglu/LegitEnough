@@ -256,6 +256,18 @@ namespace LegitEnough.Sim
 
         // ------------------------------------------------------------------ player lines
 
+        // ------------------------------------------------------------------ another photo (player's call)
+
+        /// <summary>Called back to the stool for another photo. No dice: a retake never moves the shop's luck.</summary>
+        public static string RetakeCalled(CustomerProfile p) =>
+            p.Has(Trait.Impatient) || p.Has(Trait.Aggressive) ? "Again? Make it quick." : "Another one? Fine.";
+
+        /// <summary>Too fed up for another photo.</summary>
+        public const string RetakeRefused = "No more photos. That one's fine.";
+
+        /// <summary>Getting up after the extra photo.</summary>
+        public const string RetakeDone = "Better? I'll be on the bench.";
+
         public static class Player
         {
             public static string Accept(int amount) => $"Deal. {Labels.Money(amount)}.";

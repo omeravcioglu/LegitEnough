@@ -30,6 +30,12 @@ namespace LegitEnough.Sim
         public string CountryId;
         public int Days;
         public float Magnitude;
+        /// <summary>Scripted RuleChange: the new minimum head coverage (0 = a random rule changes).</summary>
+        public float RuleCoverageMin;
+        /// <summary>Scripted RuleChange: the new photo background (null = not this rule).</summary>
+        public Backdrop? RuleBackdrop;
+        /// <summary>Scripted RuleChange: the updated handbook's first handwritten note (null = unchanged).</summary>
+        public string RuleNote;
     }
 
     /// <summary>Writes the morning news and decides which events hit the shop.</summary>
@@ -68,7 +74,7 @@ namespace LegitEnough.Sim
         {
             var candidates = new List<CountryState>();
             foreach (var c in s.CountryList)
-                if (c.Owned || s.Standing.Reputation >= c.Spec.UnlockReputation) candidates.Add(c);
+                if (c.Requestable(s.Standing.Reputation)) candidates.Add(c);
             if (candidates.Count == 0) return null;
             var country = rng.Pick(candidates);
             string name = country.Spec.Name.ToUpperInvariant();
@@ -162,10 +168,7 @@ namespace LegitEnough.Sim
                 case 1:
                 {
                     float shift = rng.Chance(0.5f) ? 0.05f : -0.05f;
-                    float min = Math.Max(0.45f, Math.Min(0.75f, spec.Photo.CoverageMin + shift));
-                    spec.Photo.CoverageMin = min;
-                    spec.Photo.CoverageMax = min + 0.1f;
-                    return $"Head coverage: now {Labels.Percent(min)} - {Labels.Percent(min + 0.1f)}";
+                    return SetCoverage(spec, Math.Max(0.45f, Math.Min(0.75f, spec.Photo.CoverageMin + shift)));
                 }
                 case 2:
                 {
@@ -194,5 +197,44 @@ namespace LegitEnough.Sim
                 }
             }
         }
+
+        /// <summary>The coverage rule change, with a known result (scripted news).</summary>
+        public static string SetCoverage(CountrySpec spec, float min)
+        {
+            spec.Photo.CoverageMin = min;
+            spec.Photo.CoverageMax = min + 0.1f;
+            return $"Head coverage: now {Labels.Percent(min)} - {Labels.Percent(min + 0.1f)}";
+        }
+
+        /// <summary>The background rule change, with a known result (scripted news).</summary>
+        public static string SetBackdrop(CountrySpec spec, Backdrop b)
+        {
+            var old = spec.Photo.Backdrop;
+            spec.Photo.Backdrop = b;
+            return $"Photo background: {Labels.Of(old)} -> {Labels.Of(b)}";
+        }
+
+        /// <summary>The demo's fixed Day 2 paper: France wants white backgrounds, a sale, one local story.</summary>
+        public static List<NewsItem> DemoMorning(int day) => new List<NewsItem>
+        {
+            new NewsItem
+            {
+                Day = day, Effect = NewsEffect.RuleChange, CountryId = Countries.France, RuleBackdrop = Backdrop.White,
+                RuleNote = "WHITE now. Not gray. They changed it.",
+                Headline = "FRANCE NOW WANTS WHITE PHOTO BACKGROUNDS",
+                Body = "Light gray is out, effective immediately. Updated handbooks are available in the SHOP.",
+            },
+            new NewsItem
+            {
+                // Runs past the demo's last day, so it's still on when the first jobs have paid.
+                Day = day, Section = "SHOP", Effect = NewsEffect.EquipmentSale, Days = 3, Magnitude = 0.5f,
+                Headline = "EQUIPMENT SALE AT THE ELECTRONICS MARKET", Body = "Half off all upgrades. While stocks last.",
+            },
+            new NewsItem
+            {
+                Day = day, Section = "LOCAL",
+                Headline = "STRAY CAT ELECTED 'MASCOT OF THE MONTH'", Body = "The cat could not be reached for comment.",
+            },
+        };
     }
 }

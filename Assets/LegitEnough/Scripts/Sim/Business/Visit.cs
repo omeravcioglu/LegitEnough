@@ -63,6 +63,8 @@ namespace LegitEnough.Sim
         public ArrivalKind Kind;
         public StoryBeat Beat;
         public VisitPhase Phase = VisitPhase.Walking;
+        /// <summary>When they came through the door.</summary>
+        public GameTime ArrivedAt;
 
         // ---- movement
         public Spot From = Spot.Door;
@@ -93,8 +95,17 @@ namespace LegitEnough.Sim
         public bool Greeted;
         /// <summary>How many problems they spotted during inspection.</summary>
         public int Noticed;
+        /// <summary>The worst problem they pointed out at the last inspection (valid when <see cref="HasComplaint"/>).</summary>
+        public Finding Complaint;
+        public bool HasComplaint;
         /// <summary>The person on the photo stool; created when they sit down.</summary>
         public PhotoSubject Subject;
+        /// <summary>Called back to the stool by the player for another photo (their order already had one).</summary>
+        public bool Retake;
+        /// <summary>Newest photo of them kept before the retake call (-1: none). Newer ones are the retake's.</summary>
+        public int RetakeAfterPhoto = -1;
+        /// <summary>Times the player called them back for another photo.</summary>
+        public int Retakes;
 
         // ---- patience
         public float Patience;

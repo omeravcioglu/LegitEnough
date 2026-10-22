@@ -31,6 +31,8 @@ namespace LegitEnough.Sim
         public FinishedDocument Document;
         public int PagesPrinted;
         public int Redos;
+        /// <summary>Demo FIX IT over a photo problem: a new photo must be kept before the job can go on.</summary>
+        public bool NeedsRetake;
         public QualityReport Quality;
         public OutcomeKind Outcome = OutcomeKind.Pending;
         public int Paid;

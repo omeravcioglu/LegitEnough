@@ -18,6 +18,10 @@ namespace LegitEnough.Sim
         /// <summary>0..1 progress of the page currently printing.</summary>
         public float Progress { get; private set; }
         public bool Jammed { get; private set; }
+        /// <summary>Tutorial: the next page jams at 40% on purpose.</summary>
+        public bool ForceJamNextPage;
+        /// <summary>The current jam is the tutorial one: clearing it never smudges.</summary>
+        public bool SafeJam { get; private set; }
         public readonly List<PrintedPage> Tray = new List<PrintedPage>();
 
         public Printer(EquipmentDef model)
@@ -40,7 +44,17 @@ namespace LegitEnough.Sim
                 Printing = _queue[0];
                 _queue.RemoveAt(0);
                 Progress = 0f;
-                _jamAt = rng.Chance(Model.JamChance) ? rng.Range(0.25f, 0.8f) : 2f;
+                if (ForceJamNextPage)
+                {
+                    ForceJamNextPage = false;
+                    _jamAt = 0.4f;
+                    SafeJam = true;
+                }
+                else
+                {
+                    _jamAt = rng.Chance(Model.JamChance) ? rng.Range(0.25f, 0.8f) : 2f;
+                    SafeJam = false;
+                }
             }
 
             Progress += dt / (Model.PrintSeconds * Math.Max(1f, Slowdown));
@@ -65,6 +79,11 @@ namespace LegitEnough.Sim
         {
             if (!Jammed) return;
             Jammed = false;
+            if (SafeJam)
+            {
+                SafeJam = false;
+                return;
+            }
             if (Printing != null && rng.Chance(0.5f)) Printing.Smudged = true;
         }
 

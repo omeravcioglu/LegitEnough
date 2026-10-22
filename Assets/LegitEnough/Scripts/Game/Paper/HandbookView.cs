@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using LegitEnough.Sim;
 using UnityEngine;
 using UnityEngine.UIElements;
@@ -10,6 +11,9 @@ namespace LegitEnough.Game
     /// </summary>
     public sealed class HandbookView : Overlay
     {
+        /// <summary>The demo's extra tab: visas, a full-game feature.</summary>
+        public const string VisasTab = "VISAS";
+
         readonly VisualElement _left;
         readonly VisualElement _right;
         readonly VisualElement _tabs;
@@ -24,7 +28,11 @@ namespace LegitEnough.Game
             var rings = Ui.Deco("le-binder__rings", binder);
             for (int i = 0; i < 3; i++) Ui.Deco("le-binder__ring", rings);
             _right = Ui.El("le-binder__page le-binder__page--right", binder);
-            _tabs = Ui.El("le-binder__tabs", Root).At(1570, 70, 340, 960);
+            // The column hugs its tabs (its backing fills the gaps between them) and squeezes past 960px.
+            _tabs = Ui.El("le-binder__tabs", Root).At(1570, 70, 340);
+            _tabs.style.maxHeight = 960;
+            // The demo adds FULL GAME stamps and a VISAS tab: tighter tabs keep all twelve in the column.
+            _tabs.EnableInClassList("le-binder__tabs--demo", S.IsDemo);
             _tabs.RegisterCallback<ClickEvent>(e => e.StopPropagation());
             Ui.Text("H / ESC to close", "le-binder__hint", Root).At(150, 1036, 600, 30).pickingMode = PickingMode.Ignore;
 
@@ -44,13 +52,30 @@ namespace LegitEnough.Game
             AddTab("BASICS", "BASICS", true, null);
             foreach (var c in S.CountryList)
             {
-                bool unlocked = S.Standing.Reputation >= c.Spec.UnlockReputation;
-                string state = c.Owned ? (c.HandbookOutdated ? "OUTDATED" : null) : unlocked ? $"BUY {Labels.Money(c.Spec.HandbookPrice)}" : "LOCKED";
+                if (c.FullGameOnly)
+                {
+                    AddTab(c.Id, c.Spec.Name.ToUpperInvariant(), false, null, c.Spec.Name + " is");
+                    continue;
+                }
+                bool unlocked = c.Requestable(S.Standing.Reputation);
+                // The demo says what a closed section takes; "locked" belongs to the FULL GAME stamp.
+                string state = c.Owned ? (c.HandbookOutdated ? "OUTDATED" : null)
+                    : unlocked ? $"BUY {Labels.Money(c.Spec.HandbookPrice)}"
+                    : S.IsDemo ? $"NEEDS {c.Spec.UnlockReputation} REP" : "LOCKED";
                 AddTab(c.Id, c.Spec.Name.ToUpperInvariant(), c.Owned, state);
             }
+            if (S.IsDemo) AddTab(VisasTab, "VISAS", false, null, "Visas are");
 
             _left.Clear();
             _right.Clear();
+            if (S.IsDemo && _selected == VisasTab)
+            {
+                RenderFullGame("VISAS", FullGameLocks.Padlock(6, "le-hb-lock__art"),
+                    "Some trips need more than a passport. Different paper, different rules.",
+                    "Visa work is in the full game, with all ten countries and the top-of-the-line kit.");
+                RenderFullGameList();
+                return;
+            }
             if (_selected == "BASICS" || S.Country(_selected) == null)
             {
                 RenderPage(_left, Handbook.General());
@@ -65,14 +90,41 @@ namespace LegitEnough.Game
             }
 
             var state2 = S.Country(_selected);
+            if (state2.FullGameOnly)
+            {
+                var spec = state2.Spec;
+                RenderFullGame(spec.Name.ToUpperInvariant(), FullGameLocks.Flag(spec.Id, 6, "le-hb-lock__art"), Scribble(spec),
+                    $"{spec.Adjective} jobs are in the full game, with all ten countries, visas and the top-of-the-line kit.");
+                // The facing page is the real photo page with its answers blacked out.
+                RenderPage(_right, Handbook.Photo(spec), true);
+                Ui.Text("– Sealed. These rules come with the full game.", "le-hb__note", _right);
+                var stamp = FullGameLocks.Badge(4, "le-hb-teaser__stamp");
+                stamp.pickingMode = PickingMode.Ignore;
+                _right.Add(stamp);
+                return;
+            }
             if (!state2.Owned)
             {
                 var locked = new HandbookPage { Title = state2.Spec.Name.ToUpperInvariant() };
-                bool unlocked = S.Standing.Reputation >= state2.Spec.UnlockReputation;
-                locked.Note(unlocked
-                    ? $"Section not purchased. Buy it in the computer's SHOP ({Labels.Money(state2.Spec.HandbookPrice)}) to take {state2.Spec.Adjective} jobs."
-                    : "Nobody's asking for this one yet. Build your reputation.");
+                bool unlocked = state2.Requestable(S.Standing.Reputation);
+                if (!S.IsDemo)
+                    locked.Note(unlocked
+                        ? $"Section not purchased. Buy it in the computer's SHOP ({Labels.Money(state2.Spec.HandbookPrice)}) to take {state2.Spec.Adjective} jobs."
+                        : "Nobody's asking for this one yet. Build your reputation.");
+                // Demo: only promise clients who are really coming.
+                else if (!unlocked)
+                    locked.Note($"Nobody's asking for this one yet. It opens at reputation {state2.Spec.UnlockReputation}.");
+                else if (FullGameLocks.ClientBooked(S, state2.Id))
+                    locked.Note($"Section not purchased. Click the COMPUTER, then SHOP: it's {Labels.Money(state2.Spec.HandbookPrice)}. Then you can take {state2.Spec.Adjective} jobs.");
+                else
+                    locked.Note($"Section not purchased ({Labels.Money(state2.Spec.HandbookPrice)} in the computer's SHOP). No {state2.Spec.Adjective} clients are booked in the demo; buy it to read the rules anyway.");
                 RenderPage(_left, locked);
+                if (S.IsDemo)
+                {
+                    // What the section holds, blacked out until it's bought.
+                    RenderPage(_right, Handbook.Photo(state2.Spec), true);
+                    Ui.Text(unlocked ? "– Buy the section to read it." : "– Not for sale yet.", "le-hb__note", _right);
+                }
                 return;
             }
 
@@ -85,16 +137,25 @@ namespace LegitEnough.Game
             if (state2.HandbookOutdated)
             {
                 var sticky = Ui.El("le-sticky le-sticky--alert", _left);
-                Ui.Text($"OUTDATED! {state2.Spec.Name} changed its rules on day {state2.LastRuleChangeDay}. Buy the update in the SHOP ({Labels.Money(Balance.HandbookUpdateCost)}).", "le-sticky__text", sticky);
+                Ui.Text($"OUTDATED! {state2.Spec.Name} changed its rules on day {state2.LastRuleChangeDay}. Click the COMPUTER, then SHOP: the update is {Labels.Money(Balance.HandbookUpdateCost)}.", "le-sticky__text", sticky);
             }
         }
 
-        void AddTab(string id, string label, bool owned, string state)
+        /// <summary>
+        /// One binder tab, named "handbook-tab-{id}" for the tutorial. <paramref name="fullGame"/>
+        /// ("Japan is") marks a demo tab for something only the full game has: a greyed, padlocked
+        /// flag and the FULL GAME stamp on the state line. The label stays the plain name.
+        /// </summary>
+        void AddTab(string id, string label, bool owned, string state, string fullGame = null)
         {
             var tab = Ui.El("le-tab le-clickable", _tabs);
+            tab.name = "handbook-tab-" + id;
             tab.EnableInClassList("le-tab--active", id == _selected);
             tab.EnableInClassList("le-tab--locked", !owned);
-            if (id != "BASICS")
+            tab.EnableInClassList("le-tab--fullgame", fullGame != null);
+            if (fullGame != null)
+                tab.Add(id == VisasTab ? FullGameLocks.Padlock(3, "le-tab__lock") : FullGameLocks.Flag(id, 3, "le-tab__flag le-tab__flag--locked"));
+            else if (id != "BASICS")
             {
                 var flag = UiArt.Image(UiArt.Flag(id), 3, "le-tab__flag");
                 flag.pickingMode = PickingMode.Ignore;
@@ -103,28 +164,90 @@ namespace LegitEnough.Game
             var text = Ui.El("le-tab__text", tab);
             text.pickingMode = PickingMode.Ignore;
             Ui.Text(label, "le-tab__label", text).pickingMode = PickingMode.Ignore;
-            if (state != null) Ui.Text(state, "le-tab__state", text).pickingMode = PickingMode.Ignore;
+            if (fullGame != null) text.Add(FullGameLocks.Badge(2, "le-tab__badge"));
+            else if (state != null) Ui.Text(state, "le-tab__state", text).pickingMode = PickingMode.Ignore;
             tab.RegisterCallback<ClickEvent>(e =>
             {
                 e.StopPropagation();
                 _selected = id;
                 Sfx.Play(SfxId.Paper, 0.5f, 1.3f);
+                if (fullGame != null) FullGameLocks.Nudge(Game, fullGame);
                 Rebuild();
             });
         }
 
-        static void RenderPage(VisualElement page, HandbookPage content)
+        /// <summary>The page behind a FULL GAME tab: what it is, a scribble, and where to get it.</summary>
+        void RenderFullGame(string title, VisualElement art, string scribble, string pitch)
+        {
+            Ui.Text(title, "le-hb__title", _left);
+            var head = Ui.El("le-hb-lock", _left);
+            head.Add(art);
+            head.Add(FullGameLocks.Badge(3, "le-hb-lock__badge"));
+            if (scribble != null) Ui.Text("– " + scribble, "le-hb__note", _left);
+            Ui.Text(pitch, "le-hb-lock__pitch", _left);
+            Ui.Btn("WISHLIST ON STEAM", StoreLinks.OpenWishlist, "le-btn--primary le-hb-lock__wishlist", _left).name = "handbook-wishlist";
+        }
+
+        /// <summary>The right-hand page behind the VISAS tab: what the full game adds, from the game's own data.</summary>
+        void RenderFullGameList()
+        {
+            var names = new List<string>();
+            var flags = Ui.El("le-row le-row--wrap le-hb-flags");
+            foreach (var c in S.CountryList)
+            {
+                if (!c.FullGameOnly) continue;
+                names.Add(c.Spec.Name);
+                flags.Add(FullGameLocks.Flag(c.Id, 3, "le-hb-flags__flag"));
+            }
+            var kit = new List<string>();
+            foreach (var e in EquipmentCatalog.All)
+                if (S.EquipmentLocked(e)) kit.Add(e.Name);
+            var page = new HandbookPage { Title = "IN THE FULL GAME" };
+            if (names.Count > 1)
+                page.Add("COUNTRIES", "All ten, adding " + string.Join(", ", names.GetRange(0, names.Count - 1)) + " and " + names[names.Count - 1] + ".");
+            page.Add("VISAS", "On top of passports. More paper, more rules, more money.");
+            if (kit.Count > 0) page.Add("KIT", string.Join(", ", kit) + ".");
+            page.Add("CLIENTS", "More stories, regulars and trouble at the door.");
+            page.Add("DAYS", "No two-day limit. The shop stays open.");
+            page.Note("The good money is in the paperwork you can't do yet.");
+            RenderPage(_right, page);
+            if (flags.childCount > 0) _right.Add(flags);
+        }
+
+        /// <summary>R.'s note on a full-game country: the twist that makes it worth the wait.</summary>
+        static string Scribble(CountrySpec spec) => spec.Id switch
+        {
+            Countries.UnitedKingdom => "Same gray as France. Different everything else.",
+            Countries.Japan => "Year first, dots in between. No notes to lean on.",
+            Countries.SouthKorea => "Sixty-four pages. Dates like 14 MAR 1987. No place of birth.",
+            Countries.Emirates => "Red backdrop. Headwear is fine. Five years, not ten.",
+            Countries.Iran => "Brown cover, five-year passports. The best money in town, and the most trouble.",
+            _ => spec.Notes != null && spec.Notes.Length > 0 ? spec.Notes[0] : null,
+        };
+
+        /// <summary>
+        /// Prints a handbook page. <paramref name="redacted"/> keeps the labels but blacks out every
+        /// answer (bars sized to the hidden text) and leaves out the margin notes.
+        /// </summary>
+        static void RenderPage(VisualElement page, HandbookPage content, bool redacted = false)
         {
             if (!string.IsNullOrEmpty(content.Title)) Ui.Text(content.Title, "le-hb__title", page);
             foreach (var line in content.Lines)
             {
                 if (line.Handwritten)
                 {
-                    Ui.Text("– " + line.Value, "le-hb__note", page);
+                    if (!redacted) Ui.Text("– " + line.Value, "le-hb__note", page);
                     continue;
                 }
+                if (redacted && line.Label.Length == 0) continue;
                 var row = Ui.El("le-hb__row", page);
                 if (line.Label.Length > 0) Ui.Text(line.Label, "le-hb__label", row);
+                if (redacted)
+                {
+                    var bar = Ui.El("le-hb__redact", row);
+                    bar.style.width = Mathf.Clamp(line.Value.Length * 12, 72, 330);
+                    continue;
+                }
                 Ui.Text(line.Value, line.Label.Length > 0 ? "le-hb__value" : "le-hb__value le-hb__value--wide", row);
             }
         }

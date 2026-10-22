@@ -235,6 +235,13 @@ namespace LegitEnough.Game
                 line1 = n == 1 ? "1 OPEN ORDER" : $"{n} OPEN ORDERS";
             }
             line2 = $"DAY {S.Day}  {S.Now.Clock}";
+            if (TitleMood)
+            {
+                // The title shows the shop at night: no live mail or clock behind the menu.
+                alert = false;
+                line1 = "SLEEP MODE";
+                line2 = "22:00";
+            }
             if (st.Computer == 3)
             {
                 // Twin monitors: the left screen is narrow, so keep it terse.
@@ -321,6 +328,24 @@ namespace LegitEnough.Game
         static Color32 C(string hex) => Pal.Hex(hex);
 
         /// <summary>Client sheet: 27x31.</summary>
+        /// <summary>
+        /// The country line of a desk sheet: the name when it fits the 23-pixel line, else a short
+        /// form, so a long name is never cut into another word ("GERMANY" into "GERMAN").
+        /// </summary>
+        public static string SheetCountry(CountrySpec spec)
+        {
+            string name = spec.Name.ToUpperInvariant();
+            if (PixelFont.Tiny.Measure(name) <= 23) return name;
+            switch (spec.Id)
+            {
+                case Countries.Germany: return "GER";
+                case Countries.UnitedStates: return "USA";
+                case Countries.SouthKorea: return "KOREA";
+                case Countries.Emirates: return "UAE";
+                default: return spec.Id;
+            }
+        }
+
         public static void Sheet(PixelBuffer b, int orderId, string surname, string country)
         {
             b.Resize(27, 31);

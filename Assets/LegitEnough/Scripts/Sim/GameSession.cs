@@ -26,6 +26,8 @@ namespace LegitEnough.Sim
 
         public readonly ulong Seed;
         public readonly Rng Rng;
+        /// <summary>Full game or demo. Fixed for the whole session.</summary>
+        public readonly GameRules Rules;
         public readonly Clock Clock = new Clock();
         public readonly Ledger Ledger;
         public readonly Standing Standing = new Standing();
@@ -69,17 +71,24 @@ namespace LegitEnough.Sim
         int _jobsCompletedToday;
         int _messagesToday;
 
-        public GameSession(ulong seed)
+        public GameSession(ulong seed) : this(seed, null) { }
+
+        public GameSession(ulong seed, GameRules rules)
         {
             Seed = seed;
+            Rules = rules ?? GameRules.Full();
             Rng = new Rng(seed, 1);
             Ledger = new Ledger(Balance.StartingCash);
             Clients = new ClientDatabase(seed);
             foreach (var p in StoryCast.CreateProfiles()) Clients.Register(p);
+            if (IsDemo)
+                foreach (var p in DemoCast.CreateProfiles()) Clients.Register(p);
 
             foreach (var spec in Sim.Countries.CreateAll())
             {
+                if (IsDemo) DemoCast.Tune(spec);
                 var state = new CountryState { Spec = spec, HandbookSpec = spec, Owned = spec.OwnedAtStart };
+                state.FullGameOnly = IsDemo && Array.IndexOf(GameRules.DemoCountries, spec.Id) < 0;
                 Countries[spec.Id] = state;
                 CountryList.Add(state);
             }
@@ -88,7 +97,10 @@ namespace LegitEnough.Sim
                 Equipment[slot] = EquipmentCatalog.Starter(slot);
             Printer = new Printer(Equipment[EquipmentSlot.Printer]);
 
-            _storyQueue.Add(StoryCast.SamirArrives());
+            var samir = StoryCast.SamirArrives();
+            if (IsDemo) samir.ArrivalMinute = DemoCast.SamirArrivalMinute;
+            _storyQueue.Add(samir);
+            if (IsDemo) _storyQueue.AddRange(DemoCast.DayTwoBeats());
             Inbox.Schedule(new Message
             {
                 ArrivesAt = new GameTime(1, Balance.MorningMinute - 30),
@@ -108,6 +120,15 @@ namespace LegitEnough.Sim
         public EquipmentDef Computer => Equipment[EquipmentSlot.Computer];
         public EquipmentDef Station => Equipment[EquipmentSlot.PhotoStation];
         public CountryState Country(string id) => id != null && Countries.TryGetValue(id, out var c) ? c : null;
+        public bool IsDemo => Rules.IsDemo;
+        /// <summary>The guided first day of the demo.</summary>
+        public bool TutorialActive => IsDemo && Rules.Tutorial && Day == 1;
+        /// <summary>The demo's last report is showing; there is no tomorrow.</summary>
+        public bool DemoOver => IsDemo && Day >= Rules.LastDay && Phase == DayPhase.Closed;
+        /// <summary>Visible but locked in this edition ("FULL GAME").</summary>
+        public bool IsCountryLocked(string countryId) => Country(countryId)?.FullGameOnly ?? false;
+        /// <summary>Above this edition's equipment tier ("FULL GAME").</summary>
+        public bool EquipmentLocked(EquipmentDef e) => IsDemo && e != null && e.Tier > Rules.MaxEquipmentTier;
         public CustomerProfile Customer(int id) => Clients.Get(id);
         public Visit GetVisit(int id) => Visits.Find(v => v.Id == id);
         public bool HasFlag(string flag) => _flags.Contains(flag);
@@ -133,6 +154,8 @@ namespace LegitEnough.Sim
             {
                 Clock.Running = true;
                 Clock.Advance(dt);
+                // The guided day never reaches closing time while Samir's job is still to come.
+                if (TutorialActive && SamirPending()) Clock.Minute = Math.Min(Clock.Minute, Balance.CloseMinute - 30);
                 if (Phase == DayPhase.Open && Clock.Minute >= Balance.CloseMinute) EnterAfterHours();
                 if (Clock.Minute >= ForcedCloseMinute) ForceEndDay();
             }
@@ -141,6 +164,7 @@ namespace LegitEnough.Sim
                 Clock.Running = false;
             }
 
+            if (IsDemo) TickDemo();
             DeliverMessages();
             ResolveSilentOutcomes();
             if (Phase == DayPhase.Open) ProcessArrivals(dt);
@@ -176,8 +200,16 @@ namespace LegitEnough.Sim
                     Beat = beat,
                 });
             }
-            RunMorningNews();
-            Director.PlanWalkIns(day, Standing.ExpectedCustomersPerDay, TrafficMultiplier, Rng);
+            if (IsDemo)
+            {
+                // The demo is scripted: no dice for news or walk-ins.
+                RunDemoMorning(day);
+            }
+            else
+            {
+                RunMorningNews();
+                Director.PlanWalkIns(day, Standing.ExpectedCustomersPerDay, TrafficMultiplier, Rng);
+            }
             DeliverMessages();
             Emit(SimEventType.DayStarted, amount: day);
         }
@@ -187,6 +219,7 @@ namespace LegitEnough.Sim
         {
             if (Phase != DayPhase.Morning) return;
             Phase = Clock.Minute >= Balance.CloseMinute ? DayPhase.AfterHours : DayPhase.Open;
+            if (IsDemo && Phase == DayPhase.Open) ShiftDemoArrivals();
             Emit(SimEventType.ShopOpened);
         }
 
@@ -198,6 +231,11 @@ namespace LegitEnough.Sim
             {
                 if (v.Phase == VisitPhase.Gone) continue;
                 reason = "Customers are still inside.";
+                return false;
+            }
+            if (IsDemo && Phase == DayPhase.Open && DemoVisitorStillDue())
+            {
+                reason = TutorialActive ? "Not yet. Your first customer is on his way." : "Not yet. Someone's still due today.";
                 return false;
             }
             return true;
@@ -216,6 +254,14 @@ namespace LegitEnough.Sim
             Phase = DayPhase.AfterHours;
             Director.DropNewJobsBefore(new GameTime(Day, 1440f));
             Emit(SimEventType.ClosingTime);
+            if (IsDemo)
+            {
+                // The demo has no tomorrow: whoever is already being served stays until the work is done
+                // (or 23:00). Only a rush job keeps its deadline.
+                var late = new GameTime(Day, ForcedCloseMinute);
+                foreach (var v in Visits)
+                    if (v.Order != null && v.Order.IsOpen && !v.Order.Urgent && v.Order.Deadline < late) v.Order.Deadline = late;
+            }
             foreach (var v in Visits.ToArray())
             {
                 if (v.Phase == VisitPhase.Queueing)
@@ -225,6 +271,11 @@ namespace LegitEnough.Sim
                 }
                 else if (v.Phase == VisitPhase.Waiting && v.Order != null && v.Order.IsOpen && v.PendingHandover == null)
                 {
+                    if (IsDemo)
+                    {
+                        if (!v.IsTalking) v.Say(DemoCast.AfterHoursWait);
+                        continue;
+                    }
                     v.Say(Lines.ClosingTime(v.Customer, Rng));
                     ConvertToPickup(v.Order, new GameTime(Day + 1, Balance.OpenMinute + 60 + Rng.Range(0, 5) * 30));
                     LeaveAfterLines(v);
@@ -300,6 +351,7 @@ namespace LegitEnough.Sim
         public void StartNextDay()
         {
             if (Phase != DayPhase.Closed) return;
+            if (IsDemo && Day >= Rules.LastDay) return; // The demo-end screen takes it from here.
             StartDay(Day + 1);
         }
 
@@ -379,10 +431,12 @@ namespace LegitEnough.Sim
         {
             var c = Country(countryId);
             if (c == null || c.Owned) return false;
-            if (Standing.Reputation < c.Spec.UnlockReputation) return false;
+            if (!c.Requestable(Standing.Reputation)) return false;
             if (!Ledger.CanAfford(c.Spec.HandbookPrice)) return false;
             Ledger.Record(Clock.Now, LedgerKind.Handbook, -c.Spec.HandbookPrice, $"Handbook: {c.Spec.Name}");
             c.Owned = true;
+            // Someone at the counter who could only hear "no" for this country gets a real offer now.
+            ReofferJobs(countryId, DemoCast.HandbookBoughtLine);
             Emit(SimEventType.Purchase, text: c.Spec.Name);
             return true;
         }
@@ -391,6 +445,7 @@ namespace LegitEnough.Sim
         {
             var e = EquipmentCatalog.Get(equipmentId);
             if (e == null || Equipment[e.Slot].Tier >= e.Tier) return false;
+            if (EquipmentLocked(e)) return false;
             int price = PriceOf(e);
             if (!Ledger.CanAfford(price)) return false;
             Ledger.Record(Clock.Now, LedgerKind.Equipment, -price, e.Name);
@@ -409,7 +464,9 @@ namespace LegitEnough.Sim
         public void SetAcceptingJobs(string countryId, bool accepting)
         {
             var c = Country(countryId);
-            if (c != null) c.AcceptingJobs = accepting;
+            if (c == null) return;
+            c.AcceptingJobs = accepting;
+            if (IsDemo && accepting) ReofferJobs(countryId, DemoCast.TakingJobsAgainLine);
         }
     }
 }
