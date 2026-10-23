@@ -610,7 +610,7 @@ namespace LegitEnough.Game
         {
             var o = v.Order;
             bool male = v.Customer.Identity.Sex == Sex.Male;
-            string name = v.Customer.FirstName;
+            string name = StreetName.Person(v.Customer.FirstName);
             bool made = o.Status == OrderStatus.Ready || S.Printer.Tray.Exists(p => p.OrderId == o.Id)
                 || (S.Printer.Printing != null && S.Printer.Printing.OrderId == o.Id);
             string text = $"Call {name} back to the stool for a new photo? It costs a little of {(male ? "his" : "her")} patience. "

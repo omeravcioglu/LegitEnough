@@ -1,0 +1,149 @@
+/* =====================================================================
+   LEGIT ENOUGH - achievements: the unlock banner (AchievementToasts) and the
+   ACHIEVEMENTS screen (AchievementsView), plus the extra title row.
+   Badges are pixel art at integer scales (UiArt.Image): never scaled or rotated here.
+   Selectors that override Main.uss / DemoBoot.uss are compound, so load order doesn't matter.
+   Font sizes stay multiples of 12.
+   ===================================================================== */
+
+/* ---------------------------------------------------------------- title */
+
+/* One more menu row (ACHIEVEMENTS): the demo's rows sit 4px tighter so the panel still ends above the CRT. */
+.le-title--ach.le-title--demo .le-btn--menu { padding-top: 2px; padding-bottom: 2px; }
+
+/* ---------------------------------------------------------------- unlock banner */
+
+/* Placed from code (stage pixels): top centre over the shop, bottom corners over the computer. */
+.le-achtoasts { position: absolute; }
+
+.le-achtoast {
+    flex-direction: row;
+    align-items: center;
+    background-color: rgba(27, 22, 18, 0.95);
+    border-width: 4px;
+    border-top-color: var(--le-panel-hi);
+    border-right-color: var(--le-panel-lo);
+    border-bottom-color: var(--le-panel-lo);
+    border-left-width: 12px;
+    border-left-color: #c9a24a;
+    padding: 8px 16px 8px 12px;
+}
+.le-achtoast.le-achtoast--banked { border-left-color: var(--le-red); }
+.le-achtoast__badge { margin-right: 16px; }
+.le-achtoast__words { flex-grow: 1; flex-shrink: 1; justify-content: center; }
+.le-achtoast__head { color: var(--le-accent); font-size: 24px; margin: 0; padding: 0; }
+.le-achtoast--banked .le-achtoast__head { color: #e0645e; }
+.le-achtoast__row { flex-direction: row; align-items: center; flex-wrap: wrap; }
+.le-achtoast__name {
+    -unity-font-definition: resource("LegitEnough/Fonts/LegitStamp");
+    color: var(--le-text);
+    font-size: 24px;
+    margin: 0;
+    padding: 0;
+    flex-shrink: 1;
+}
+.le-achtoast__fullgame { margin: 2px 0 0 12px; }
+
+/* Quiet (the guided Day 1): badge at 2x, the name only, as wide as they need (centred in the layer). */
+.le-achtoasts.le-achtoasts--fit { align-items: center; }
+.le-achtoast.le-achtoast--quiet { padding: 4px 16px 4px 8px; }
+.le-achtoasts--fit .le-achtoast.le-achtoast--quiet { min-width: 300px; }
+.le-achtoast--quiet .le-achtoast__badge { margin-right: 12px; }
+
+/* Compact (over the computer): 72px tall so it fits under the monitor bezel in either corner. */
+.le-achtoast.le-achtoast--compact { padding: 0 12px 0 4px; height: 72px; }
+.le-achtoast--compact .le-achtoast__badge { margin-right: 12px; }
+
+/* ---------------------------------------------------------------- ACHIEVEMENTS screen */
+
+.le-card.le-ach { padding: 24px 28px; }
+.le-ach__header { align-items: flex-end; margin-bottom: 4px; }
+.le-h1.le-ach__title { margin: 0 24px 0 0; }
+.le-ach__count {
+    -unity-font-definition: resource("LegitEnough/Fonts/LegitStamp");
+    font-size: 36px;
+    color: var(--le-accent);
+    margin: 0 24px 4px 0;
+}
+.le-ach__more { margin-bottom: 6px; }
+
+.le-ach__body { align-items: flex-start; flex-grow: 1; }
+
+/* Six columns of 112 + 2x3 margin. */
+.le-ach__grid { width: 708px; flex-direction: row; flex-wrap: wrap; align-content: flex-start; margin-right: 40px; }
+.le-ach__divider {
+    width: 100%;
+    -unity-font-definition: resource("LegitEnough/Fonts/LegitStamp");
+    font-size: 24px;
+    color: var(--le-muted);
+    margin: 6px 3px 2px 3px;
+    padding: 0 0 2px 0;
+    border-bottom-width: 3px;
+    border-color: #3a3229;
+}
+
+.le-btn.le-ach__cell {
+    width: 112px;
+    height: 124px;
+    margin: 3px;
+    padding: 4px 4px 0 4px;
+    align-items: center;
+    justify-content: flex-start;
+    background-color: #241d17;
+    border-width: 4px;
+    border-top-color: #3a3027;
+    border-left-color: #3a3027;
+    border-bottom-color: #0e0b09;
+    border-right-color: #0e0b09;
+}
+.le-btn.le-ach__cell:hover { background-color: #33291f; border-top-color: var(--le-accent); border-left-color: var(--le-accent); }
+.le-btn.le-ach__cell:active { translate: 0 0; }
+.le-btn.le-ach__cell.le-ach__cell--selected { border-color: var(--le-accent); background-color: #4a3a22; }
+/* Full-game cells in the demo: the FULL GAME tab colours. */
+.le-btn.le-ach__cell.le-ach__cell--fullgame { background-color: #3d3832; border-top-color: #575148; border-left-color: #575148; }
+.le-btn.le-ach__cell.le-ach__cell--fullgame.le-ach__cell--selected { border-color: var(--le-red); background-color: #575148; }
+.le-ach__cell-badge { flex-shrink: 0; }
+
+.le-ach__bar {
+    width: 96px;
+    height: 8px;
+    margin-top: 4px;
+    background-color: #0e0b09;
+    flex-shrink: 0;
+}
+.le-ach__bar-fill { height: 8px; background-color: #c9a24a; width: 0; }
+.le-ach__bar.le-ach__bar--big { width: 360px; height: 12px; margin: 0 0 0 20px; }
+.le-ach__bar--big .le-ach__bar-fill { height: 12px; }
+
+/* The NEW plate is pixel art (34x22 at 2x), inside the cell over the badge's top-right corner (a button clips its children). */
+.le-ach__new { position: absolute; right: 0; top: 0; }
+
+/* The picked one, large. */
+.le-ach__detail { width: 760px; height: 820px; flex-grow: 0; }
+.le-ach__detail-top { align-items: center; margin: 4px 0 16px 0; }
+.le-ach__detail-badge { width: 192px; height: 192px; margin-right: 28px; flex-shrink: 0; }
+.le-ach__detail-words { justify-content: center; }
+.le-ach__status {
+    -unity-font-definition: resource("LegitEnough/Fonts/LegitStamp");
+    font-size: 24px;
+    color: var(--le-muted);
+    margin: 0 0 8px 0;
+}
+.le-ach__status--good { color: var(--le-good); }
+.le-ach__status--full { color: #e0645e; }
+.le-ach__status--secret { color: var(--le-accent); }
+.le-ach__name {
+    -unity-font-definition: resource("LegitEnough/Fonts/LegitStamp");
+    font-size: 48px;
+    color: var(--le-text);
+    margin: 0;
+}
+.le-ach__desc { font-size: 24px; color: var(--le-text); margin: 0 0 20px 0; min-height: 60px; }
+.le-ach__progress { margin-bottom: 20px; }
+.le-ach__progress-text { font-size: 24px; color: var(--le-accent); min-width: 160px; margin: 0; }
+.le-ach__fullgame { align-items: center; margin-top: 4px; }
+.le-ach__fullgame-badge { margin-right: 20px; }
+.le-ach__spacer { flex-grow: 1; }
+.le-ach__foot { align-items: center; }
+.le-btn.le-btn--big.le-ach__foot-back { margin-left: 0; }
+.le-ach__keys { margin-left: 24px; }

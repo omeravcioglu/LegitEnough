@@ -186,6 +186,7 @@ namespace LegitEnough.Game
                 Game.ToggleHandbook();
             }, "le-btn--big", card).name = "pause-handbook";
             Ui.Btn("SETTINGS", () => Game.Open(new SettingsView(Game)), "le-btn--big", card).name = "pause-settings";
+            Ui.Btn("ACHIEVEMENTS", () => Game.Open(new AchievementsView(Game)), "le-btn--big", card).name = "pause-achievements";
             bool demo = S.IsDemo;
             Ui.Btn(demo ? "RESTART DEMO" : "NEW GAME", () => Game.Open(new ConfirmView(Game, "Start over?",
                 demo ? "Back to the title. This run of the demo is lost." : "This campaign will be lost.",

@@ -12,13 +12,15 @@ Loops are rendered circularly: everything that rings past the loop end (notes, r
 and compressor state) is wrapped onto the head, and LFOs run a whole number of cycles per loop.
 
 Usage:  python Tools/Music/compose.py [--cue all|title|shop|busy|end] [--no-export]
-Writes Assets/LegitEnough/Resources/LegitEnough/Music/*.ogg and listening copies + analysis in
-Tools/Music/out/.  Needs numpy, scipy, Pillow and ffmpeg (libvorbis, libmp3lame).
+Writes Assets/LegitEnough/Resources/LegitEnough/Music/*.ogg (what the game plays), MP3 listening
+copies in Tools/Music/out/ and float WAV masters in %TEMP%/LegitEnoughMusic (for analyze.py).
+Needs numpy, scipy, Pillow and ffmpeg (libvorbis, libmp3lame).
 """
 import argparse
 import os
 import subprocess
 import sys
+import tempfile
 import time
 import zlib
 
@@ -38,6 +40,8 @@ import theory as T  # noqa: E402
 
 GAME_DIR = os.path.join(ROOT, "Assets", "LegitEnough", "Resources", "LegitEnough", "Music")
 OUT_DIR = os.path.join(HERE, "out")
+# Float masters are big (90 MB for a 4-minute cue): they live in the temp folder, not the project.
+WORK_DIR = os.path.join(tempfile.gettempdir(), "LegitEnoughMusic")
 
 
 # ====================================================================== time
@@ -365,10 +369,19 @@ def render_shop(busy, seed=1966):
             if free:
                 x = free[int(rng.integers(0, len(free)))]
                 events.append([bi * 4 + x, 0.35, base * 0.85, voicings[bi][0], 0.9])
-    events.sort(key=lambda e: e[0])
-    for i, e in enumerate(events):    # the next hit (or a push) cuts the one before
-        nxt = events[(i + 1) % len(events)][0] + (len(plan) * 4 if i + 1 == len(events) else 0)
+    # The next hit (or a push) cuts the one before. Busy's stabs are cut by the shared hits but
+    # never cut them, so the shared comping stays identical in both versions.
+    shared = sorted([e for e in events if e[4] == 1.0], key=lambda e: e[0])
+    total = len(plan) * 4
+    starts = [e[0] for e in shared]
+    for i, e in enumerate(shared):
+        nxt = shared[(i + 1) % len(shared)][0] + (total if i + 1 == len(shared) else 0)
         e[1] = min(e[1], nxt - e[0] - 0.08)
+    for e in events:
+        if e[4] != 1.0:
+            later = [x for x in starts if x > e[0]] or [starts[0] + total]
+            e[1] = min(e[1], later[0] - e[0] - 0.08)
+    events.sort(key=lambda e: e[0])
     for at, beats, v, vc, g in events:
         rng = kr(seed, "rh", int(round(at * 6)))
         rhodes_chord(take, at, vc, max(0.25, beats), v, rng, g)
@@ -493,7 +506,7 @@ def render_title(seed=72):
         for ci, c in enumerate(b):
             at = bi * 4 + ci * c.beats
             rhodes_chord(take, at, voicings[bi][ci], c.beats - 0.15, 0.4, rng, 1.0, roll=0.04)
-            if len(b) == 1 and rng.random() < 0.35:
+            if len(b) == 1 and (rng.random() < 0.35 or bi == len(TITLE_CHART) - 1):
                 rhodes_chord(take, at + 2.5, voicings[bi][ci], 1.3, 0.3, rng, 0.8, roll=0.03, top_only=2)
         # Bass: whole notes (half notes through the middle).
         for ci, c in enumerate(b):
@@ -503,6 +516,10 @@ def render_title(seed=72):
                 bass_note(take, at, m, 1.85, vel(rng, 0.62), rng)
                 fifth = T._nearest((c.root + 7) % 12, m)
                 bass_note(take, at + 2, fifth, 1.8, vel(rng, 0.52), rng)
+            elif bi == len(TITLE_CHART) - 1:
+                # Walk up into the top of the loop: A ... C# -> D.
+                bass_note(take, at, m, 2.9, vel(rng, 0.6), rng)
+                bass_note(take, at + 3, T._nearest(1, m), 0.95, vel(rng, 0.5), rng)
             else:
                 bass_note(take, at, m, c.beats - 0.1, vel(rng, 0.6), rng)
         # Pad: the room at night.
@@ -632,10 +649,10 @@ class Bus:
 
 
 LEVELS = {  # stem loudness relative to the mix (LU), before the master
-    "title": dict(bass=-9.0, kit=-19.0, ride=-30.0, snaps=-30.0, rhodes=-4.5, vibes=-5.0, pad=-11.0),
-    "shop": dict(bass=-5.5, kit=-11.0, ride=-15.5, snaps=-30.0, rhodes=-6.5, vibes=-5.5, pad=-30.0),
-    "busy": dict(bass=-5.5, kit=-9.5, ride=-10.5, snaps=-14.0, rhodes=-6.5, vibes=-6.0, pad=-30.0),
-    "end": dict(bass=-6.5, kit=-12.0, ride=-16.0, snaps=-30.0, rhodes=-5.5, vibes=-4.5, pad=-30.0),
+    "title": dict(bass=-10.0, kit=-18.0, ride=-30.0, snaps=-30.0, rhodes=-4.5, vibes=-4.5, pad=-11.5),
+    "shop": dict(bass=-6.5, kit=-10.0, ride=-14.5, snaps=-30.0, rhodes=-6.0, vibes=-5.0, pad=-30.0),
+    "busy": dict(bass=-6.5, kit=-8.5, ride=-10.0, snaps=-13.5, rhodes=-6.0, vibes=-5.5, pad=-30.0),
+    "end": dict(bass=-7.5, kit=-11.5, ride=-15.5, snaps=-30.0, rhodes=-5.0, vibes=-4.0, pad=-30.0),
 }
 TARGET_LUFS = {"title": -21.0, "shop": -20.0, "busy": -19.5, "end": -20.0}
 TP_MAX = -2.0
@@ -651,16 +668,16 @@ def mix(take, kind, ref_lufs=None):
     bass = bus.circ(lambda x: dsp.shelf(x, 90.0, -1.5, high=False), bass)
     bass = bus.circ(lambda x: dsp.lp(x, 4200.0, 2), bass)
     bass = bus.circ(lambda x: dsp.compressor(x, -24.0, 2.5, 0.006, 0.14), bass)
-    kit = bus.circ(lambda x: dsp.shelf(dsp.hp(x, 70.0, 2), 8000.0, -3.0), st["kit"])
+    kit = bus.circ(lambda x: dsp.shelf(dsp.hp(x, 70.0, 2), 9000.0, -2.0), st["kit"])
     ride_ = bus.circ(lambda x: dsp.lp(dsp.shelf(dsp.hp(x, 320.0, 2), 7000.0, -5.0), 11500.0, 2), st["ride"])
     snaps = bus.circ(lambda x: dsp.hp(x, 400.0, 2), st["snaps"])
     trem = bus.lfo(n, 4.2)
     rh = st["rhodes"]
     rh = np.vstack([rh[0] * (0.78 + 0.22 * trem), rh[1] * (0.78 + 0.22 * (1 - trem))])
-    rh = bus.circ(lambda x: dsp.peak_eq(dsp.shelf(x, 3200.0, -3.0), 450.0, -2.0, 1.0), rh)
+    rh = bus.circ(lambda x: dsp.peak_eq(dsp.shelf(x, 3200.0, -1.0), 450.0, -1.5, 1.0), rh)
     rh = bus.circ(lambda x: dsp.hp(x, 90.0, 2), rh)
     motor = 1.0 - 0.22 * bus.lfo(n, 5.0)
-    vib = bus.circ(lambda x: dsp.shelf(x, 6000.0, -2.0), st["vibes"] * motor)
+    vib = bus.circ(lambda x: dsp.peak_eq(x, 2400.0, 1.5, 0.9), st["vibes"] * motor)
     pad = bus.circ(lambda x: dsp.hp(dsp.lp(x, 1500.0, 2), 120.0, 2), st["pad"])
     parts = dict(bass=bass, kit=kit, ride=ride_, snaps=snaps, rhodes=rh, vibes=vib, pad=pad)
 
@@ -721,7 +738,8 @@ def ffmpeg(*args):
 
 def export(name, x, game=True):
     os.makedirs(OUT_DIR, exist_ok=True)
-    wav = os.path.join(OUT_DIR, name + ".wav")
+    os.makedirs(WORK_DIR, exist_ok=True)
+    wav = os.path.join(WORK_DIR, name + ".wav")
     write_wav(wav, x)
     if game:
         os.makedirs(GAME_DIR, exist_ok=True)
@@ -785,10 +803,9 @@ def main():
             export(name, out)
     if not args.no_export and all(k in audio for k in CUES):
         dm = demo_mix(audio)
-        write_wav(os.path.join(OUT_DIR, "demo_mix.wav"), dm)
-        ffmpeg("-i", os.path.join(OUT_DIR, "demo_mix.wav"), "-c:a", "libmp3lame", "-b:a", "256k",
+        write_wav(os.path.join(WORK_DIR, "demo_mix.wav"), dm)
+        ffmpeg("-i", os.path.join(WORK_DIR, "demo_mix.wav"), "-c:a", "libmp3lame", "-b:a", "256k",
                os.path.join(OUT_DIR, "demo_mix.mp3"))
-        os.remove(os.path.join(OUT_DIR, "demo_mix.wav"))
         print(f"demo_mix: {dm.shape[1] / SR:.1f} s", flush=True)
 
 

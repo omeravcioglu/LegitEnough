@@ -169,7 +169,10 @@ def walk(chart, rng, start=38, feel=None, next_chord=None, end_target=None):
         k = int(round(c.beats))
         # Beat one: the root, near where the line is; on a repeated chord sometimes the 3rd or 5th.
         same = i > 0 and flat[i - 1][1].root == c.root and flat[i - 1][1].qual[0] == c.qual[0]
-        if same and rng.random() < 0.35:
+        recolour = i > 0 and flat[i - 1][1].root == c.root and flat[i - 1][1].qual != c.qual and c.beats < 4
+        if recolour:
+            pc = (c.root + QUAL[c.qual][1][1]) % 12      # Dm9 -> D7b9: show the new 3rd (F#)
+        elif same and rng.random() < 0.35:
             pc = (c.root + (QUAL[c.qual][1][1] if rng.random() < 0.5 else 7)) % 12
         else:
             pc = c.root

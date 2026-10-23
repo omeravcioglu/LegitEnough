@@ -3,7 +3,7 @@
 # Usage:  powershell -ExecutionPolicy Bypass -File Tools/SimTests/run.ps1 [-Filter name] [-Unity <EditorDataPath>]
 param(
     [string]$Filter = "",
-    [string]$Unity = "C:\Program Files\Unity\Hub\Editor\6000.0.32f1\Editor\Data"
+    [string]$Unity = "C:\Program Files\Unity\Hub\Editor\6000.0.85f1\Editor\Data"
 )
 $ErrorActionPreference = "Stop"
 $root = Resolve-Path (Join-Path $PSScriptRoot "..\..")

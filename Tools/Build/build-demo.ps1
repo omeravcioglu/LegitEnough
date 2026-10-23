@@ -7,7 +7,7 @@
 param(
     [string]$Work = (Join-Path $env:TEMP "LegitEnoughBuild"),
     [string]$Out = "",
-    [string]$UnityExe = "C:\Program Files\Unity\Hub\Editor\6000.0.32f1\Editor\Unity.exe",
+    [string]$UnityExe = "C:\Program Files\Unity\Hub\Editor\6000.0.85f1\Editor\Unity.exe",
     [int]$TimeoutMinutes = 40
 )
 $ErrorActionPreference = "Stop"

@@ -53,6 +53,8 @@ namespace LegitEnough.Sim
         public PhotoSession ActivePhoto { get; private set; }
         public Visit ActivePhotoVisit { get; private set; }
         public DayReport LastReport => Reports.Count > 0 ? Reports[Reports.Count - 1] : null;
+        /// <summary>Read-only achievement observer; null unless one attaches (see AchievementTracker).</summary>
+        public AchievementTracker Achievements { get; internal set; }
 
         readonly List<SimEvent> _events = new List<SimEvent>();
         readonly List<StoryBeat> _storyQueue = new List<StoryBeat>();
@@ -140,8 +142,12 @@ namespace LegitEnough.Sim
             return list;
         }
 
-        void Emit(SimEventType type, int visitId = 0, int orderId = 0, int amount = 0, string text = "") =>
-            _events.Add(new SimEvent(type, visitId, orderId, amount, text));
+        void Emit(SimEventType type, int visitId = 0, int orderId = 0, int amount = 0, string text = "")
+        {
+            var e = new SimEvent(type, visitId, orderId, amount, text);
+            _events.Add(e);
+            Achievements?.OnEvent(e);
+        }
 
         // ------------------------------------------------------------------ main loop
 
@@ -171,6 +177,7 @@ namespace LegitEnough.Sim
             TickVisits(dt);
             TickPhoto(dt);
             TickPrinter(dt);
+            Achievements?.Poll();
         }
 
         // ------------------------------------------------------------------ day cycle

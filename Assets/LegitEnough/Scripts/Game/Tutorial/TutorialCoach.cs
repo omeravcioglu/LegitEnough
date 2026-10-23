@@ -20,6 +20,8 @@ namespace LegitEnough.Game
     public sealed class TutorialCoach
     {
         const float NoteW = 440f;
+        /// <summary>The narrow note for the computer: fits beside the OS window, over the room art.</summary>
+        const float CompactW = 360f;
         const float Gutter = 24f;
         const int ArrowScale = 4;
         const float ArrowSize = 13 * ArrowScale;
@@ -100,6 +102,8 @@ namespace LegitEnough.Game
         readonly PixelBuffer[] _arrows = new PixelBuffer[4];
         readonly List<Rect> _keepClear = new List<Rect>();
         readonly List<Rect> _obstacles = new List<Rect>();
+        /// <summary>The buttons and fields on the screen in front (and where scrolled ones come into view).</summary>
+        readonly List<Rect> _controls = new List<Rect>();
 
         GameSession _session;
         bool _skipped;
@@ -118,6 +122,10 @@ namespace LegitEnough.Game
         bool _preferBottom;
         /// <summary>The camera's empty right column, just above its bottom buttons, is a dock spot too.</summary>
         bool _sideSpot;
+        /// <summary>The narrow note is allowed (the computer: room art on both sides of the monitor).</summary>
+        bool _compactOk;
+        /// <summary>The note is narrow right now.</summary>
+        bool _compact;
         int _arrowDir = -1;
         int _arrowSide = DemoArt.PointerDown;
         string _arrowKey = "";
@@ -762,11 +770,12 @@ namespace LegitEnough.Game
                 var c = v.Request != null ? S.Country(v.Request.CountryId) : v.Order != null ? S.Country(v.Order.CountryId) : null;
                 if (c == null || c.FullGameOnly) continue;
                 string pron = v.Customer.Identity.Sex == Sex.Male ? "him" : "her";
+                string name = StreetName.Person(v.Customer.FirstName);
                 bool choosing = v.Phase == VisitPhase.Choosing && v.Order == null && v.Choices.Count > 0;
                 bool onlyNo = choosing && v.Choices.Count == 1 && v.Choices[0].Id == GameSession.ChoiceIds.Decline;
                 if (onlyNo && !c.Owned && c.Requestable(rep))
-                    return ShopNudge(c, $"{v.Customer.FirstName} wants {c.Spec.Name}. No section, no job. Click the COMPUTER, then SHOP: it's {Labels.Money(c.Spec.HandbookPrice)}. Or tell {pron} no.",
-                        $"{c.Spec.Name}: BUY. Then {v.Customer.FirstName} gets a real answer.", "shop-buy-" + c.Id);
+                    return ShopNudge(c, $"{name} wants {c.Spec.Name}. No section, no job. Click the COMPUTER, then SHOP: it's {Labels.Money(c.Spec.HandbookPrice)}. Or tell {pron} no.",
+                        $"{c.Spec.Name}: BUY. Then {name} gets a real answer.", "shop-buy-" + c.Id);
                 bool beforePhoto = (choosing && !onlyNo) || (v.Phase == VisitPhase.PhotoSitting && v.Order != null && S.Photos.ForCustomer(v.Customer.Id).Count == 0);
                 if (beforePhoto && c.Owned && c.HandbookOutdated)
                     return ShopNudge(c, $"Your {c.Spec.Name} pages are OUT OF DATE and this is a {c.Spec.Adjective} job. Click the COMPUTER, then SHOP: the update is {Labels.Money(Balance.HandbookUpdateCost)}.",
@@ -854,6 +863,7 @@ namespace LegitEnough.Game
             var top = _game.Top;
             _preferBottom = top is CameraView || top is ReviewView || top is CropView;
             _sideSpot = top is CameraView;
+            _compactOk = top is ComputerView;
             switch (top)
             {
                 case CameraView _:
@@ -877,7 +887,9 @@ namespace LegitEnough.Game
                     else _keepClear.Add(new Rect(110f, 50f, 730f, 980f));
                     break;
                 case ComputerView _:
-                    _keepClear.Add(new Rect(14f, 110f, 310f, 820f));   // the pinned client sheet
+                    var pinned = top.Root.Q(className: "le-pinned");
+                    if (pinned == null || Visible(pinned))
+                        _keepClear.Add(new Rect(14f, 110f, 310f, 820f));   // the pinned client sheet
                     _keepClear.Add(new Rect(376f, 56f, 1268f, 56f));   // the OS title bar: date, cash, X
                     _keepClear.Add(new Rect(380f, 110f, 200f, 810f));  // the OS nav
                     break;
@@ -953,7 +965,7 @@ namespace LegitEnough.Game
                 _arrow.Show(false);
             }
             // A target that isn't laid out yet (a screen that was just rebuilt) docks again next frame.
-            Dock(avoid, target.HasValue || step.Target == null ? key : null);
+            Dock(avoid, target.HasValue || step.Target == null ? key : null, targetEl);
         }
 
         static int PartOf(string[] flow, (string Name, string Last)[] parts, int flowIndex)
@@ -1082,37 +1094,63 @@ namespace LegitEnough.Game
 
         /// <summary>
         /// Docks the note in a stage corner (or the camera's empty right column): never over its own
-        /// target or the arrow, clear of what the player needs to see, ideally on the other side.
-        /// It only moves when the step changes or the target would end up underneath it.
+        /// target or the arrow, never over a button or field the screen in front offers (in a list
+        /// that scrolls, where its buttons scroll into view counts too), clear of what the player
+        /// needs to see, ideally on the other side. Over the computer it may go narrow to fit
+        /// beside the OS window, on the room art. It only moves when the step changes or the
+        /// target would end up underneath it.
         /// </summary>
-        void Dock(Rect? avoid, string key)
+        void Dock(Rect? avoid, string key, VisualElement targetEl)
         {
             float h = _note.resolvedStyle.height;
             if (float.IsNaN(h) || h < 40f) h = 240f;
-            float right = GameRoot.StageWidth - Gutter - NoteW;
-            float bottom = GameRoot.StageHeight - Gutter - h;
-            var spots = new List<Vector2> { new Vector2(Gutter, Gutter), new Vector2(right, Gutter), new Vector2(Gutter, bottom), new Vector2(right, bottom) };
-            if (_sideSpot) spots.Add(new Vector2(right, Mathf.Max(Gutter, 996f - h)));
+            // The other width's height, estimated from this one (the note lays out again next frame).
+            float hWide = _compact ? WideHeight(h) : h;
+            float hNarrow = _compact ? h : NarrowHeight(h);
+
+            var spots = new List<(Vector2 Pos, bool Narrow)>();
+            void Corners(float w, float hh, bool narrow)
+            {
+                float right = GameRoot.StageWidth - Gutter - w;
+                float bottom = GameRoot.StageHeight - Gutter - hh;
+                spots.Add((new Vector2(Gutter, Gutter), narrow));
+                spots.Add((new Vector2(right, Gutter), narrow));
+                spots.Add((new Vector2(Gutter, bottom), narrow));
+                spots.Add((new Vector2(right, bottom), narrow));
+            }
+            Corners(NoteW, hWide, false);
+            if (_sideSpot) spots.Add((new Vector2(GameRoot.StageWidth - Gutter - NoteW, Mathf.Max(Gutter, 996f - hWide)), false));
+            if (_compactOk) Corners(CompactW, hNarrow, true);
             if (_dock >= spots.Count) _dock = -1;
 
+            Rect Box(int i) => new Rect(spots[i].Pos, spots[i].Narrow ? new Vector2(CompactW, hNarrow) : new Vector2(NoteW, hWide));
+
             bool keep = _dock >= 0 && key != null && key == _dockKey
-                && !(avoid.HasValue && new Rect(spots[_dock], new Vector2(NoteW, h)).Overlaps(avoid.Value));
+                && !(avoid.HasValue && Box(_dock).Overlaps(avoid.Value));
             if (!keep)
             {
+                CollectControls(targetEl);
                 float best = float.MaxValue;
                 int pick = 0;
                 for (int i = 0; i < spots.Count; i++)
                 {
-                    var r = new Rect(spots[i], new Vector2(NoteW, h));
+                    var r = Box(i);
                     float s = 0f;
                     if (avoid.HasValue && r.Overlaps(avoid.Value)) s += 1e6f;
+                    // A control the player may need under the note costs more than anything but the target.
+                    foreach (var c in _controls)
+                    {
+                        float a = OverlapArea(r, c);
+                        if (a > 16f) s += 20000f + a * 2f;
+                    }
                     // Covering what the player reads always costs more than the side preference below.
                     foreach (var k in _keepClear) s += OverlapArea(r, k) * 0.5f;
-                    bool left = spots[i].x < GameRoot.StageWidth * 0.5f;
+                    bool left = r.center.x < GameRoot.StageWidth * 0.5f;
                     if (avoid.HasValue && left == avoid.Value.center.x < GameRoot.StageWidth * 0.5f) s += 3000f;
-                    bool top = i < 2;
+                    bool top = r.yMin <= Gutter + 1f;
                     if (top == _preferBottom) s += 600f;
-                    if (i == 1) s += 700f; // the toasts live up there
+                    if (top && !left) s += 700f; // the toasts live up there
+                    if (spots[i].Narrow) s += 500f; // the wide note reads better when it fits
                     if (i == _dock) s -= 1f;
                     if (s < best)
                     {
@@ -1123,8 +1161,61 @@ namespace LegitEnough.Game
                 _dock = pick;
                 if (key != null) _dockKey = key;
             }
-            _note.style.left = Snap(spots[_dock].x);
-            _note.style.top = Snap(spots[_dock].y);
+            SetCompact(spots[_dock].Narrow);
+            _note.style.left = Snap(spots[_dock].Pos.x);
+            _note.style.top = Snap(spots[_dock].Pos.y);
+        }
+
+        // The note's rows that don't wrap (header, SKIP, padding) and its text width at each size.
+        const float NoteChrome = 132f;
+        const float WideTextW = NoteW - 40f;
+        const float NarrowTextW = CompactW - 32f;
+
+        static float NarrowHeight(float wide) => NoteChrome + 34f + Mathf.Max(0f, wide - NoteChrome) * (WideTextW / NarrowTextW);
+        static float WideHeight(float narrow) => NoteChrome + Mathf.Max(0f, narrow - NoteChrome - 34f) * (NarrowTextW / WideTextW);
+
+        void SetCompact(bool on)
+        {
+            if (on == _compact) return;
+            _compact = on;
+            _note.style.width = on ? CompactW : NoteW;
+            _note.EnableInClassList("le-coach__note--compact", on);
+        }
+
+        /// <summary>
+        /// Stage boxes of the buttons and fields on the screen in front, except the target's own.
+        /// In a list that scrolls, a control's column counts for the list's whole height: the rows
+        /// above and below scroll into that column while the note sits there.
+        /// </summary>
+        void CollectControls(VisualElement target)
+        {
+            _controls.Clear();
+            var scope = _game.Top?.Root;
+            if (scope == null || _game.Stage == null) return;
+            scope.Query<VisualElement>().ForEach(e =>
+            {
+                if (!(e is Button || e is TextField || e is Toggle || e is Slider || e is SliderInt || e is DropdownField)) return;
+                if (target != null && (IsInside(e, target) || IsInside(target, e))) return;
+                if (IsInside(e, Root) || HasAncestorClass(e, "le-toasts") || !Visible(e)) return;
+                var wb = e.worldBound;
+                if (float.IsNaN(wb.x) || float.IsNaN(wb.y) || !(wb.width >= 1f) || !(wb.height >= 1f)) return;
+                for (var p = e.hierarchy.parent; p != null; p = p.hierarchy.parent)
+                {
+                    if (!(p is ScrollView sv) || !IsInside(e, sv.contentContainer)) continue;
+                    var vp = sv.contentViewport.worldBound;
+                    if (float.IsNaN(vp.x) || float.IsNaN(vp.y)) continue;
+                    float x0 = Mathf.Max(wb.xMin, vp.xMin), x1 = Mathf.Min(wb.xMax, vp.xMax);
+                    if (x1 <= x0) return;
+                    if (sv.contentContainer.layout.height > vp.height + 1f) wb = Rect.MinMaxRect(x0, vp.yMin, x1, vp.yMax);
+                    else
+                    {
+                        float y0 = Mathf.Max(wb.yMin, vp.yMin), y1 = Mathf.Min(wb.yMax, vp.yMax);
+                        if (y1 <= y0) return;
+                        wb = Rect.MinMaxRect(x0, y0, x1, y1);
+                    }
+                }
+                _controls.Add(_game.Stage.WorldToLocal(wb));
+            });
         }
 
         // ---------------- finding things on the stage

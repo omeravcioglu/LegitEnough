@@ -5,7 +5,7 @@ using UnityEngine.UIElements;
 namespace LegitEnough.Game
 {
     /// <summary>
-    /// The player's settings: master volume, fullscreen and hints. Kept in PlayerPrefs and applied
+    /// The player's settings: master volume, music volume, fullscreen and hints. Kept in PlayerPrefs and applied
     /// at boot. Batch runs (smoke test, store shots, trailer) neither read nor write them, so a
     /// player's choices never leak into a harness and a harness never changes them.
     /// </summary>
@@ -14,9 +14,13 @@ namespace LegitEnough.Game
         const string VolumeKey = "le.volume";
         const string FullscreenKey = "le.fullscreen";
         const string HintsKey = "le.hints";
+        const string MusicKey = "le.music";
+        public const int DefaultMusicVolume = 6;
 
         /// <summary>Master volume in tenths (0-10).</summary>
         public static int Volume { get; private set; } = 10;
+        /// <summary>Music volume in tenths (0-10), under the master volume.</summary>
+        public static int MusicVolume { get; private set; } = DefaultMusicVolume;
         public static bool Fullscreen { get; private set; } = true;
 
         static bool Persist => !Application.isBatchMode;
@@ -30,6 +34,7 @@ namespace LegitEnough.Game
             if (!Persist) return;
             Volume = Mathf.Clamp(PlayerPrefs.GetInt(VolumeKey, 10), 0, 10);
             AudioListener.volume = Volume / 10f;
+            MusicVolume = Mathf.Clamp(PlayerPrefs.GetInt(MusicKey, DefaultMusicVolume), 0, 10);
             game.ShowHints = PlayerPrefs.GetInt(HintsKey, 1) != 0;
             if (PlayerPrefs.HasKey(FullscreenKey))
             {
@@ -44,6 +49,13 @@ namespace LegitEnough.Game
             Volume = Mathf.Clamp(tenths, 0, 10);
             AudioListener.volume = Volume / 10f;
             Save(VolumeKey, Volume);
+        }
+
+        public static void SetMusicVolume(int tenths)
+        {
+            MusicVolume = Mathf.Clamp(tenths, 0, 10);
+            Save(MusicKey, MusicVolume);
+            MusicPlayer.OnVolumeChanged();
         }
 
         public static void SetFullscreen(bool on)
@@ -144,7 +156,12 @@ namespace LegitEnough.Game
     public sealed class SettingsView : Overlay
     {
         readonly VisualElement[] _pips = new VisualElement[10];
+        readonly VisualElement[] _musicPips = new VisualElement[10];
         readonly Label _volume;
+        readonly Label _music;
+        /// <summary>The rows the arrow keys adjust: 0 = VOLUME, 1 = MUSIC (UP/DOWN picks).</summary>
+        readonly Label[] _rowLabels = new Label[2];
+        int _row;
         readonly Button _fullscreen;
         readonly Button _hints;
         /// <summary>The card that opened this one (title or pause): hidden meanwhile, so no edges show around it.</summary>
@@ -158,7 +175,7 @@ namespace LegitEnough.Game
             var card = Ui.El("le-card le-settings", center);
             Ui.Text("SETTINGS", "le-h1 le-settings__title", card);
 
-            var vol = Row(card, "VOLUME");
+            var vol = Row(card, "VOLUME", out _rowLabels[0]);
             Ui.Btn("-", () => SetVolume(GameSettings.Volume - 1), "le-btn--small le-btn--icon", vol).name = "settings-volume-down";
             var pips = Ui.El("le-row le-set__pips", vol);
             for (int i = 0; i < _pips.Length; i++)
@@ -170,6 +187,19 @@ namespace LegitEnough.Game
             }
             Ui.Btn("+", () => SetVolume(GameSettings.Volume + 1), "le-btn--small le-btn--icon", vol).name = "settings-volume-up";
             _volume = Ui.Text("", "le-set__value", vol);
+
+            var mus = Row(card, "MUSIC", out _rowLabels[1]);
+            Ui.Btn("-", () => SetMusic(GameSettings.MusicVolume - 1), "le-btn--small le-btn--icon", mus).name = "settings-music-down";
+            var mpips = Ui.El("le-row le-set__pips", mus);
+            for (int i = 0; i < _musicPips.Length; i++)
+            {
+                int tenths = i + 1;
+                var pip = Ui.Btn("", () => SetMusic(GameSettings.MusicVolume == tenths ? tenths - 1 : tenths), "le-set__pip", mpips);
+                pip.name = "settings-music-" + tenths;
+                _musicPips[i] = pip;
+            }
+            Ui.Btn("+", () => SetMusic(GameSettings.MusicVolume + 1), "le-btn--small le-btn--icon", mus).name = "settings-music-up";
+            _music = Ui.Text("", "le-set__value", mus);
 
             var full = Row(card, "FULLSCREEN");
             _fullscreen = Ui.Btn("", () =>
@@ -187,25 +217,38 @@ namespace LegitEnough.Game
             }, "le-set__toggle", hints);
             _hints.name = "settings-hints";
             Ui.Text(S.IsDemo
-                ? "R.'s notes on day one and the hint line at the bottom of the shop. F1 switches them in play."
+                ? "R.'s notes on both days and the hint line at the bottom of the shop. F1 switches them in play."
                 : "The hint line at the bottom of the shop. F1 switches it in play.", "le-muted le-settings__help", card);
 
             var foot = Ui.El("le-row le-row--center le-settings__foot", card);
             Ui.Btn("BACK", Close, "le-btn--primary le-btn--big", foot).name = "settings-back";
-            Ui.Text("◀ ▶ volume   ·   ESC back", "le-muted le-settings__keys", card);
+            Ui.Text("▲ ▼ pick   ·   ◀ ▶ adjust   ·   ESC back", "le-muted le-settings__keys", card);
             Sync();
         }
 
         static VisualElement Row(VisualElement card, string label)
         {
+            return Row(card, label, out _);
+        }
+
+        static VisualElement Row(VisualElement card, string label, out Label text)
+        {
             var row = Ui.El("le-row le-set__row", card);
-            Ui.Text(label, "le-set__label", row);
+            text = Ui.Text(label, "le-set__label", row);
             return row;
         }
 
         void SetVolume(int tenths)
         {
+            _row = 0;
             GameSettings.SetVolume(tenths);
+            Sync();
+        }
+
+        void SetMusic(int tenths)
+        {
+            _row = 1;
+            GameSettings.SetMusicVolume(tenths);
             Sync();
         }
 
@@ -213,6 +256,9 @@ namespace LegitEnough.Game
         {
             for (int i = 0; i < _pips.Length; i++) _pips[i].Toggle("le-set__pip--on", i < GameSettings.Volume);
             _volume.SetTextIfChanged(GameSettings.Volume * 10 + "%");
+            for (int i = 0; i < _musicPips.Length; i++) _musicPips[i].Toggle("le-set__pip--on", i < GameSettings.MusicVolume);
+            _music.SetTextIfChanged(GameSettings.MusicVolume * 10 + "%");
+            for (int i = 0; i < _rowLabels.Length; i++) _rowLabels[i].Toggle("le-set__label--picked", i == _row);
             OnOff(_fullscreen, GameSettings.Fullscreen);
             _shownFull = GameSettings.Fullscreen;
             OnOff(_hints, Game.ShowHints);
@@ -241,10 +287,19 @@ namespace LegitEnough.Game
             var kb = Keyboard.current;
             if (kb != null)
             {
-                int step = (kb.rightArrowKey.wasPressedThisFrame ? 1 : 0) - (kb.leftArrowKey.wasPressedThisFrame ? 1 : 0);
-                if (step != 0 && GameSettings.Volume + step >= 0 && GameSettings.Volume + step <= 10)
+                int pick = (kb.downArrowKey.wasPressedThisFrame ? 1 : 0) - (kb.upArrowKey.wasPressedThisFrame ? 1 : 0);
+                if (pick != 0 && _row + pick >= 0 && _row + pick < _rowLabels.Length)
                 {
-                    SetVolume(GameSettings.Volume + step);
+                    _row += pick;
+                    Sync();
+                    Sfx.Play(SfxId.Click, 0.6f);
+                }
+                int step = (kb.rightArrowKey.wasPressedThisFrame ? 1 : 0) - (kb.leftArrowKey.wasPressedThisFrame ? 1 : 0);
+                int now = _row == 0 ? GameSettings.Volume : GameSettings.MusicVolume;
+                if (step != 0 && now + step >= 0 && now + step <= 10)
+                {
+                    if (_row == 0) SetVolume(now + step);
+                    else SetMusic(now + step);
                     Sfx.Play(SfxId.Click);
                 }
             }

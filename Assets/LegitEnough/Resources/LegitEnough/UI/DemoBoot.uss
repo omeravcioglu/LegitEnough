@@ -67,6 +67,8 @@
     width: 300px;
     flex-shrink: 0;
 }
+/* The row the arrow keys adjust (VOLUME or MUSIC; UP/DOWN picks). */
+.le-set__label--picked { color: var(--le-accent); }
 /* 832px of content against the 808px volume row: nothing in it may shrink under the '+'. */
 .le-set__pips { margin: 0 6px; flex-shrink: 0; }
 .le-btn.le-set__pip {

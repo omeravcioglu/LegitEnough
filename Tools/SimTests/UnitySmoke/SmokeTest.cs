@@ -19,7 +19,15 @@ namespace LegitEnoughCI
     /// (Turkey, the Japan teaser, the locked FULL GAME screens, Germany and the France update, the
     /// rush job, the German client), the Day-2 report and the demo-end screen. Renders the UI into
     /// a RenderTexture and saves numbered PNGs, then exits with 0 (clean) or 1 (errors logged,
-    /// failed checks or a timeout).
+    /// failed checks or a timeout). At six points (title, the Day-1 shop with R.'s note, a toast
+    /// over the computer, the computer SHOP with R.'s note, the open Day-2 shop with its hint line
+    /// and a toast, the demo end) the same moment is also
+    /// rendered and checked at 3440x1440 and 1280x800 (see AspectPass); on the Day-2 SHOP screens
+    /// R.'s note must cover no button (see CoachClearOfButtons).
+    /// Achievements (memory store, banners switched on for batch): the ACHIEVEMENTS screen from the
+    /// title and the pause menu, every unlock banner on the way (held under any screen but the shop
+    /// floor and the computer, quiet on the coached Day 1, clear of R.'s note and the monitor bezel)
+    /// and the demo-end line (see WatchAch).
     /// Run: Unity -batchmode -projectPath COPY -executeMethod LegitEnoughCI.SmokeTest.Run
     /// </summary>
     public static class SmokeTest
@@ -34,6 +42,10 @@ namespace LegitEnoughCI
             public float Timeout = 40f;
             /// <summary>Checked when the step comes up: true skips it (no action, no picture).</summary>
             public Func<bool> Skip;
+            /// <summary>Runs right after the step's picture (checks on what the picture shows).</summary>
+            public Action After;
+            /// <summary>Set: after the picture, the same moment is re-rendered at the other screen sizes (see AspectPass).</summary>
+            public string AspectPick;
         }
 
         static readonly List<Step> Steps = new List<Step>();
@@ -66,6 +78,31 @@ namespace LegitEnoughCI
         static string _kenjiShot;
         static double _kenjiAsked = -1;
         static bool _kenjiDone;
+        // Background music: MusicPlayer picks a cue from the game state every frame (batch mode
+        // tracks the cue but plays nothing). Watch logs every change.
+        static MusicCue _lastCue = (MusicCue)(-1);
+        static readonly HashSet<MusicCue> CuesSeen = new HashSet<MusicCue>();
+        // The voluntary retake (photo corner -> "Another photo?"): the first kept photo and booklet.
+        static int _firstPhotoId = -1;
+        static int _firstDocId = -1;
+        static float _patienceBefore;
+        static int _settingsMusic;
+        // The aspect pass (phase 4): the screen sizes it re-renders, the one in progress, frames waited.
+        static readonly Vector2Int[] AspectSizes = { new Vector2Int(3440, 1440), new Vector2Int(1280, 800) };
+        static readonly Dictionary<Vector2Int, RenderTexture> AspectRts = new Dictionary<Vector2Int, RenderTexture>();
+        static string _aspectShot;
+        static string _aspectPick;
+        static int _aspectI;
+        static int _aspectFrame;
+        static int _aspectShots;
+        static int _coachShopChecks;
+        static readonly HashSet<string> AspectSeen = new HashSet<string>();
+        // Achievements: every banner seen on screen (WatchAch), and a banner showing where it must
+        // be held (the screen it showed over, the frame it was first seen there).
+        static readonly HashSet<string> AchSeen = new HashSet<string>();
+        static readonly HashSet<string> AchReported = new HashSet<string>();
+        static string _achBad;
+        static int _achBadFrame;
 
         static GameRoot G => GameRoot.Instance;
         static GameSession S => G.Session;
@@ -80,6 +117,8 @@ namespace LegitEnoughCI
             EditorApplication.playModeStateChanged += OnPlayMode;
             // The player build is the demo; say so explicitly in case the default ever changes.
             GameRoot.DemoBuild = true;
+            // Batch runs hide the achievement banners (trailer, store shots): this run checks them.
+            AchievementToasts.ShowInBatch = true;
             BuildScript();
             // Keep this static driver alive across entering play mode (throwaway copy only).
             EditorSettings.enterPlayModeOptionsEnabled = true;
@@ -95,6 +134,8 @@ namespace LegitEnoughCI
                 if (msg.Contains("Curl error") || msg.Contains("licens")) return;
                 Errors.Add(msg + "\n" + stack);
             }
+            // A missing music file is only a warning in the game; here it's a failure.
+            else if (type == LogType.Warning && msg.Contains("LegitEnough: music")) Errors.Add("MUSIC: " + msg);
         }
 
         static void OnPlayMode(PlayModeStateChange s)
@@ -123,7 +164,8 @@ namespace LegitEnoughCI
         {
             try
             {
-                Watch();
+                // The aspect pass holds the game still: nothing to watch until it's done.
+                if (_phase != 4) Watch();
                 DriveInner();
             }
             catch (Exception e)
@@ -156,6 +198,129 @@ namespace LegitEnoughCI
             }
             HoldArrivals();
             WatchKenji();
+            WatchAch();
+            var mp = MusicPlayer.Instance;
+            if (mp != null && mp.Cue != _lastCue)
+            {
+                _lastCue = mp.Cue;
+                CuesSeen.Add(mp.Cue);
+                Note($"music: {mp.Cue} (top {G.Top?.GetType().Name}, {S.Phase} {S.Now})");
+            }
+        }
+
+        static void MusicIs(MusicCue want, string when)
+        {
+            var mp = MusicPlayer.Instance;
+            Check(mp != null, "the MusicPlayer is running");
+            if (mp != null) Check(mp.Cue == want, $"music {when}: {want}, got {mp.Cue}");
+        }
+
+        // ------------------------------------------------------------------ achievements
+
+        static AchievementBook Book => G.Achievements?.Book;
+
+        static bool Unlocked(string id)
+        {
+            var d = AchievementCatalog.Get(id);
+            return Book != null && d != null && Book.Unlocked(d);
+        }
+
+        /// <summary>The banner layer is up (its own inline visibility, set every frame by AchievementToasts.Tick).</summary>
+        static bool AchLayerUp() =>
+            G.AchToasts != null && G.AchToasts.Layer.style.visibility.value == Visibility.Visible && G.AchToasts.Current != null;
+
+        /// <summary>The banner for <paramref name="id"/> is on screen and laid out.</summary>
+        static bool AchShowing(string id)
+        {
+            if (!AchLayerUp() || G.AchToasts.Current.Id != id) return false;
+            var item = G.AchToasts.Layer.Q("ach-toast-" + id);
+            return item != null && item.worldBound.width >= 1f && item.worldBound.height >= 1f && item.resolvedStyle.opacity > 0.9f;
+        }
+
+        /// <summary>
+        /// Every frame: log each banner the first time it's on screen (where, how, over what), and
+        /// fail if one stays up over a screen that should hold it back (anything but the shop floor
+        /// and the computer). A screen opened this frame gets a few frames' grace.
+        /// </summary>
+        static void WatchAch()
+        {
+            var t = G.AchToasts;
+            if (t == null) return;
+            bool up = AchLayerUp();
+            if (up)
+            {
+                string id = t.Current.Id;
+                var item = t.Layer.Q("ach-toast-" + id);
+                if (item != null && item.worldBound.width >= 1f && !AchSeen.Contains(id))
+                {
+                    AchSeen.Add(id);
+                    var r = item.worldBound;
+                    var st = G.Stage.worldBound;
+                    Note($"achievement banner: {id} [{string.Join(" ", item.GetClasses())}{(t.Layer.ClassListContains("le-achtoasts--low") ? " / layer low" : "")}] " +
+                         $"at ({r.x - st.x:0},{r.y - st.y:0} {r.width:0}x{r.height:0}) over {G.Top?.GetType().Name ?? "the shop"}, {t.Queued} queued, {S.Now}");
+                }
+            }
+            var top = G.Top;
+            string bad = up && top != null && !(top is ComputerView) ? $"{t.Current.Id} over {top.GetType().Name}" : null;
+            if (bad == null || bad != _achBad)
+            {
+                _achBad = bad;
+                _achBadFrame = Time.frameCount;
+                return;
+            }
+            if (Time.frameCount - _achBadFrame >= 3 && AchReported.Add(bad))
+                Check(false, "achievement banners wait while a screen is up, but " + bad + " is showing");
+        }
+
+        /// <summary>Earned, and waiting (not on screen) while <paramref name="where"/> is up.</summary>
+        static void AchHeld(string id, string where)
+        {
+            var t = G.AchToasts;
+            Check(Unlocked(id), $"{id} is unlocked ({where})");
+            Check(t != null && !AchLayerUp(), $"no achievement banner over {where}");
+            if (t == null) return;
+            bool waiting = t.Current != null ? t.Current.Id == id || t.Queued > 0 : t.Queued > 0;
+            Check(waiting || AchSeen.Contains(id), $"the {id} banner waits for {where} to close (current {t.Current?.Id ?? "-"}, {t.Queued} queued)");
+            Note($"achievements held over {where}: current {t.Current?.Id ?? "-"}, {t.Queued} queued");
+        }
+
+        /// <summary>Checks the banner on screen now: its look, its spot, and what it must stay clear of.</summary>
+        static void AchBanner(string id, bool? quiet, bool low)
+        {
+            Check(AchShowing(id), $"the {id} banner is on screen");
+            var item = G.AchToasts.Layer.Q("ach-toast-" + id);
+            if (item == null) return;
+            var r = item.worldBound;
+            var st = G.Stage.worldBound;
+            if (quiet.HasValue)
+                Check(item.ClassListContains("le-achtoast--quiet") == quiet.Value, $"{id}: {(quiet.Value ? "quiet" : "full")} banner, classes [{string.Join(" ", item.GetClasses())}]");
+            Check(G.AchToasts.Layer.ClassListContains("le-achtoasts--low") == low, $"{id}: banner {(low ? "low, over the computer" : "top centre, over the shop")}");
+            Check(r.xMin >= st.xMin - 0.5f && r.yMin >= st.yMin - 0.5f && r.xMax <= st.xMax + 0.5f && r.yMax <= st.yMax + 0.5f,
+                $"{id}: the banner is inside the stage ({r.x - st.x:0},{r.y - st.y:0} {r.width:0}x{r.height:0})");
+            if (CoachShown())
+            {
+                var note = G.Coach.Root.Q(className: "le-coach__note");
+                var o = note != null && Shown(note) ? Clip(r, note.worldBound) : null;
+                Check(o == null, $"{id}: the banner is clear of R.'s note (overlap {o?.width:0}x{o?.height:0})");
+            }
+            if (low && G.Top is ComputerView pc)
+            {
+                var bezel = pc.Root.Q(className: "le-monitor");
+                Check(bezel != null, "the monitor bezel");
+                var o = bezel != null ? Clip(r, bezel.worldBound) : null;
+                Check(o == null, $"{id}: the banner is clear of the monitor bezel (overlap {o?.width:0}x{o?.height:0})");
+            }
+            Note($"banner {id}: ({r.x - st.x:0},{r.y - st.y:0} {r.width:0}x{r.height:0}) [{string.Join(" ", item.GetClasses())}], coach {CoachShown()}, top {G.Top?.GetType().Name ?? "-"}");
+        }
+
+        /// <summary>The ACHIEVEMENTS screen's count line, and that it agrees with the book.</summary>
+        static void AchCount(string where)
+        {
+            var count = G.Stage.Q<Label>("ach-count")?.text;
+            int n = Book?.CountUnlocked(true) ?? -1;
+            string want = $"DEMO {n} / {AchievementCatalog.DemoCount}";
+            Note($"achievements count ({where}): \"{count}\", more: \"{G.Stage.Q<Label>("ach-more")?.text}\"");
+            Check(count == want, $"{where}: the count reads \"{want}\", got \"{count}\"");
         }
 
         /// <summary>
@@ -247,30 +412,230 @@ namespace LegitEnoughCI
                     _frames++;
                     if (now - _phaseStart < 0.45 || _frames < 6) return;
                     if (step.Shot != null) Shot(step.Shot);
-                    if (_jump >= 0)
+                    step.After?.Invoke();
+                    if (step.AspectPick != null && _rt != null)
                     {
-                        _index = _jump;
-                        _jump = -1;
+                        BeginAspect((step.Shot ?? step.Name) + _shotSuffix, step.AspectPick);
+                        _phase = 4;
+                        return;
                     }
-                    else _index++;
-                    _phase = 0;
-                    _phaseStart = now;
+                    NextStep(now);
+                    return;
+                case 4:
+                    if (!TickAspect()) return;
+                    NextStep(EditorApplication.timeSinceStartup);
                     return;
             }
+        }
+
+        static void NextStep(double now)
+        {
+            if (_jump >= 0)
+            {
+                _index = _jump;
+                _jump = -1;
+            }
+            else _index++;
+            _phase = 0;
+            _phaseStart = now;
         }
 
         static void Shot(string name)
         {
             if (_rt == null) return;
-            var prev = RenderTexture.active;
-            RenderTexture.active = _rt;
-            var tex = new Texture2D(_rt.width, _rt.height, TextureFormat.RGBA32, false);
-            tex.ReadPixels(new Rect(0, 0, _rt.width, _rt.height), 0, 0);
-            tex.Apply();
-            RenderTexture.active = prev;
+            var tex = ReadBack(_rt);
             File.WriteAllBytes(Path.Combine(_out, name + _shotSuffix + ".png"), tex.EncodeToPNG());
             UnityEngine.Object.DestroyImmediate(tex);
         }
+
+        static Texture2D ReadBack(RenderTexture rt)
+        {
+            var prev = RenderTexture.active;
+            RenderTexture.active = rt;
+            var tex = new Texture2D(rt.width, rt.height, TextureFormat.RGBA32, false);
+            tex.ReadPixels(new Rect(0, 0, rt.width, rt.height), 0, 0);
+            tex.Apply();
+            RenderTexture.active = prev;
+            return tex;
+        }
+
+        // ------------------------------------------------------------------ other screen shapes
+
+        /// <summary>
+        /// Marks the step just added: after its picture the game is held still (GameRoot disabled,
+        /// so no sim time passes) and the same moment is re-rendered at 3440x1440 (21:9) and
+        /// 1280x800 (Steam Deck). The panel takes the render texture's size as the screen size, so
+        /// this is what those screens show. At each size: the whole 1920x1080 stage is inside the
+        /// panel, centred, touching two opposite edges (bars on the other two, in the bar colour);
+        /// R.'s note, the toasts and the shop's hint line sit inside the stage; the named element
+        /// is picked at its on-screen spot and a bar picks nothing. Pictures: "NNN_name_WxH.png".
+        /// Then 1920x1080 comes back and the run carries on as before.
+        /// </summary>
+        static void AspectPass(string pick) => Steps[Steps.Count - 1].AspectPick = pick;
+
+        static void BeginAspect(string shot, string pick)
+        {
+            _aspectShot = shot;
+            _aspectPick = pick;
+            _aspectI = 0;
+            G.enabled = false;
+            SetTarget(AspectSizes[0]);
+        }
+
+        static void SetTarget(Vector2Int size)
+        {
+            if (!AspectRts.TryGetValue(size, out var rt))
+            {
+                rt = new RenderTexture(size.x, size.y, 24, RenderTextureFormat.ARGB32);
+                rt.Create();
+                AspectRts[size] = rt;
+            }
+            G.GetComponentInChildren<UIDocument>().panelSettings.targetTexture = rt;
+            _aspectFrame = Time.frameCount;
+        }
+
+        /// <summary>True once every size is checked and the game runs again at 1920x1080.</summary>
+        static bool TickAspect()
+        {
+            // A few rendered frames (editor updates come faster) for the panel to take the new
+            // size, the stage to re-centre and the texture to be drawn at that size.
+            if (Time.frameCount - _aspectFrame < 4) return false;
+            var size = AspectSizes[_aspectI];
+            CheckAspect(size);
+            _aspectShots++;
+            if (++_aspectI < AspectSizes.Length)
+            {
+                SetTarget(AspectSizes[_aspectI]);
+                return false;
+            }
+            G.GetComponentInChildren<UIDocument>().panelSettings.targetTexture = _rt;
+            G.enabled = true;
+            return true;
+        }
+
+        static void CheckAspect(Vector2Int size)
+        {
+            string at = $"{_aspectShot} @ {size.x}x{size.y}";
+            var root = G.GetComponentInChildren<UIDocument>().rootVisualElement;
+            var panel = root.panel;
+            Rect pr = root.layout, sb = G.Stage.worldBound;
+            // Expand: one scale for both axes, the smaller of the two ratios.
+            float k = Mathf.Min(size.x / GameRoot.StageWidth, size.y / GameRoot.StageHeight);
+            float left = sb.xMin, right = pr.width - sb.xMax, top = sb.yMin, bottom = pr.height - sb.yMax;
+            Note($"aspect {at}: panel {pr.width:0.##}x{pr.height:0.##} (scale {k:0.####}), stage ({sb.x:0.##},{sb.y:0.##}) {sb.width:0.##}x{sb.height:0.##}, bars L {left * k:0.#} R {right * k:0.#} T {top * k:0.#} B {bottom * k:0.#} px");
+            Check(Mathf.Abs(pr.width - size.x / k) < 1f && Mathf.Abs(pr.height - size.y / k) < 1f,
+                $"{at}: the panel is the screen at one scale ({size.x / k:0.#}x{size.y / k:0.#}), got {pr.width:0.#}x{pr.height:0.#}");
+            Check(Mathf.Abs(sb.width - GameRoot.StageWidth) < 0.5f && Mathf.Abs(sb.height - GameRoot.StageHeight) < 0.5f,
+                $"{at}: the stage is 1920x1080, got {sb.width:0.#}x{sb.height:0.#}");
+            Check(left >= -0.5f && top >= -0.5f && right >= -0.5f && bottom >= -0.5f, $"{at}: the whole stage is inside the panel (L {left:0.#} R {right:0.#} T {top:0.#} B {bottom:0.#})");
+            Check(Mathf.Abs(left - right) * k <= 1.01f && Mathf.Abs(top - bottom) * k <= 1.01f, $"{at}: the stage is centred (L {left * k:0.#} R {right * k:0.#} T {top * k:0.#} B {bottom * k:0.#} px)");
+            Check(Mathf.Min(left + right, top + bottom) * k <= 1.01f, $"{at}: the stage touches two opposite edges (bars only on the other two)");
+
+            // What must never reach the bars: R.'s note, the toasts, the hint line.
+            int inside = 0;
+            Action<VisualElement, string, string> inStage = (e, what, kind) =>
+            {
+                if (e == null || !Shown(e)) return;
+                var wb = e.worldBound;
+                if (!(wb.width >= 1f) || !(wb.height >= 1f)) return;
+                inside++;
+                AspectSeen.Add($"{kind} @ {size.x}x{size.y}");
+                Check(wb.xMin >= sb.xMin - 0.5f && wb.yMin >= sb.yMin - 0.5f && wb.xMax <= sb.xMax + 0.5f && wb.yMax <= sb.yMax + 0.5f,
+                    $"{at}: {what} is inside the stage ({wb.x - sb.x:0.#},{wb.y - sb.y:0.#} {wb.width:0.#}x{wb.height:0.#})");
+            };
+            if (CoachShown()) inStage(G.Coach.Root.Q(className: "le-coach__note"), "R.'s note", "note");
+            G.Stage.Query<Label>(className: "le-toast").ForEach(l => { if (!string.IsNullOrEmpty(l.text)) inStage(l, "the toast \"" + l.text + "\"", "toast"); });
+            G.Stage.Query<Label>(className: "le-hint").ForEach(l => { if (!string.IsNullOrEmpty(l.text)) inStage(l, "the hint line", "hint"); });
+            if (AchLayerUp()) inStage(G.AchToasts.Layer.Q("ach-toast-" + G.AchToasts.Current.Id), "the achievement banner", "ach");
+            Note($"aspect {at}: {inside} note/toast/hint boxes inside the stage");
+
+            // The named element is hit at its on-screen spot (worked out from the bar layout).
+            float ox = (size.x - GameRoot.StageWidth * k) * 0.5f, oy = (size.y - GameRoot.StageHeight * k) * 0.5f;
+            var el = G.Stage.Q(_aspectPick);
+            Check(el != null && Shown(el), $"{at}: '{_aspectPick}' is on screen");
+            if (el != null && Shown(el))
+            {
+                var local = G.Stage.WorldToLocal(el.worldBound.center);
+                var screen = new Vector2(ox + local.x * k, oy + local.y * k);
+                var picked = panel.Pick(RuntimePanelUtils.ScreenToPanel(panel, screen));
+                Check(picked != null && (picked == el || el.Contains(picked)), $"{at}: a click at ({screen.x:0},{screen.y:0}) hits '{_aspectPick}', got {picked?.GetType().Name}#{picked?.name}");
+            }
+            var bar = ox > 4f ? new Vector2(ox * 0.5f, size.y * 0.5f) : new Vector2(size.x * 0.5f, oy * 0.5f);
+            var barPick = panel.Pick(RuntimePanelUtils.ScreenToPanel(panel, bar));
+            Check(barPick == null || barPick == root, $"{at}: a click in the bar hits nothing, got {barPick?.GetType().Name}#{barPick?.name}");
+
+            // The picture, and the bars in it: plain rgb(6,5,4) both sides.
+            var tex = ReadBack(AspectRts[size]);
+            File.WriteAllBytes(Path.Combine(_out, $"{_aspectShot}_{size.x}x{size.y}.png"), tex.EncodeToPNG());
+            int bad = 0, seen = 0;
+            for (int i = 0; i < 9; i++)
+            {
+                float f = (i + 0.5f) / 9f;
+                var spots = ox >= 2f
+                    ? new[] { new Vector2(ox * 0.5f, size.y * f), new Vector2(size.x - ox * 0.5f, size.y * f) }
+                    : new[] { new Vector2(size.x * f, oy * 0.5f), new Vector2(size.x * f, size.y - oy * 0.5f) };
+                foreach (var p in spots)
+                {
+                    Color32 c = tex.GetPixel((int)p.x, (int)p.y);
+                    seen++;
+                    if (Math.Abs(c.r - 6) > 2 || Math.Abs(c.g - 5) > 2 || Math.Abs(c.b - 4) > 2) bad++;
+                }
+            }
+            UnityEngine.Object.DestroyImmediate(tex);
+            Check(bad == 0, $"{at}: the bars are rgb(6,5,4) ({bad} of {seen} sampled pixels are not)");
+        }
+
+        /// <summary>Displayed (no hidden ancestor) and not invisible.</summary>
+        static bool Shown(VisualElement e)
+        {
+            if (e.panel == null || e.resolvedStyle.visibility != Visibility.Visible || e.resolvedStyle.opacity < 0.01f) return false;
+            for (var p = e; p != null; p = p.hierarchy.parent)
+                if (p.resolvedStyle.display == DisplayStyle.None) return false;
+            return true;
+        }
+
+        /// <summary>
+        /// The computer SHOP with R.'s note up: the note covers no button you can see and press
+        /// (each button's box clipped to its scroll view and to the stage).
+        /// </summary>
+        static void CoachClearOfButtons(string what)
+        {
+            if (!CoachShown() || !(G.Top is ComputerView pc) || pc.CurrentApp != "shop")
+            {
+                Note($"coach vs buttons, {what}: skipped (coach {CoachShown()}, top {G.Top?.GetType().Name})");
+                return;
+            }
+            _coachShopChecks++;
+            var note = G.Coach.Root.Q(className: "le-coach__note").worldBound;
+            var stage = G.Stage.worldBound;
+            int buttons = 0;
+            var hits = new List<string>();
+            G.Top.Root.Query<Button>().ForEach(b =>
+            {
+                if (!b.enabledInHierarchy || !Shown(b)) return;
+                var wb = Clip(b.worldBound, stage);
+                for (var p = b.hierarchy.parent; p != null && wb.HasValue; p = p.hierarchy.parent)
+                    if (p is ScrollView sv && sv.contentContainer.Contains(b)) wb = Clip(wb.Value, sv.contentViewport.worldBound);
+                if (!wb.HasValue) return;
+                buttons++;
+                var o = Clip(wb.Value, note);
+                if (o.HasValue && o.Value.width > 0.5f && o.Value.height > 0.5f)
+                    hits.Add($"'{(string.IsNullOrEmpty(b.name) ? b.text : b.name)}' ({o.Value.width:0}x{o.Value.height:0})");
+            });
+            Note($"coach vs buttons, {what}: note ({note.x - stage.x:0},{note.y - stage.y:0} {note.width:0}x{note.height:0}), {buttons} buttons on screen, {hits.Count} covered");
+            Check(hits.Count == 0, $"{what}: R.'s note covers no button in the SHOP, but covers {string.Join(", ", hits)}");
+        }
+
+        static Rect? Clip(Rect a, Rect b)
+        {
+            if (float.IsNaN(a.x) || float.IsNaN(a.y) || float.IsNaN(b.x) || float.IsNaN(b.y)) return null;
+            float x0 = Mathf.Max(a.xMin, b.xMin), x1 = Mathf.Min(a.xMax, b.xMax);
+            float y0 = Mathf.Max(a.yMin, b.yMin), y1 = Mathf.Min(a.yMax, b.yMax);
+            if (x1 <= x0 || y1 <= y0) return null;
+            return Rect.MinMaxRect(x0, y0, x1, y1);
+        }
+
+        static void AfterShot(Action check) => Steps[Steps.Count - 1].After = check;
 
         /// <summary>An unplanned picture (a random jam, a smudge): numbered after the current step's own shot.</summary>
         static void ExtraShot(string name)
@@ -352,6 +717,48 @@ namespace LegitEnoughCI
 
         static bool CoachShown() =>
             G.Coach != null && G.Coach.Active && G.Coach.Root.resolvedStyle.display == DisplayStyle.Flex;
+
+        /// <summary>What R.'s sticky note says right now (its main line and the second line).</summary>
+        static string CoachText()
+        {
+            if (G.Coach == null) return "";
+            var main = G.Coach.Root.Q<Label>(className: "le-coach__text")?.text ?? "";
+            var extra = G.Coach.Root.Q<Label>(className: "le-coach__extra");
+            return extra != null && extra.resolvedStyle.display == DisplayStyle.Flex ? main + " | " + extra.text : main;
+        }
+
+        static string CoachCount() => G.Coach?.Root.Q<Label>(className: "le-coach__count")?.text ?? "";
+
+        /// <summary>
+        /// The coach is up and its ring sits on the named element (ring = the element's box plus a
+        /// margin). <paramref name="watch"/>: a "just look" ring with no arrow; otherwise the arrow shows too.
+        /// </summary>
+        static bool CoachOn(string target, bool watch = false)
+        {
+            if (!CoachShown()) return false;
+            var el = G.Stage.Q(target);
+            var ring = G.Coach.Root.Q(className: "le-coach__ring");
+            var arrow = G.Coach.Root.Q(className: "le-coach__pointer");
+            if (el == null || ring == null || arrow == null) return false;
+            if (ring.resolvedStyle.display != DisplayStyle.Flex) return false;
+            bool arrowUp = arrow.resolvedStyle.display == DisplayStyle.Flex;
+            if (arrowUp == watch) return false;
+            Rect r = ring.worldBound, t = el.worldBound;
+            return r.Overlaps(t) && r.xMin <= t.xMin + 1f && r.xMax >= t.xMax - 1f && r.width <= t.width * 1.5f + 60f;
+        }
+
+        static void CoachCheck(string target, string says, string what, bool watch = false)
+        {
+            bool on = CoachOn(target, watch);
+            string text = CoachText();
+            Note($"coach [{CoachCount()}] on {target}: {on} :: {text}");
+            Check(on, $"{what}: the coach {(watch ? "rings" : "points at")} '{target}'");
+            if (says != null) Check(text.Contains(says), $"{what}: the note says \"{says}\", got \"{text}\"");
+        }
+
+        /// <summary>An Until that waits for <paramref name="cond"/> but gives up quietly after a few seconds (the step's Check reports it).</summary>
+        static Func<bool> Soon(Func<bool> cond, float seconds = 3f) =>
+            () => cond() || EditorApplication.timeSinceStartup - _phaseStart > seconds;
 
         // ------------------------------------------------------------------ sim helpers
 
@@ -530,10 +937,18 @@ namespace LegitEnoughCI
             var v = VisitOf(customerId);
             var o = OrderOf(customerId);
             if (v == null || o == null || v.Moving) return false;
-            var doc = S.DeskDocuments.Find(d => d.OrderId == o.Id);
+            var doc = BookletOf(o);
             if (doc == null) return v.Phase == VisitPhase.Inspecting;
             if (v.Phase != VisitPhase.AwaitingHandover && v.Phase != VisitPhase.Waiting && v.Phase != VisitPhase.Choosing) return false;
             return S.GiveDocument(v.Id, doc.Id);
+        }
+
+        /// <summary>The order's booklet on the desk: the newest one when a reprint left two.</summary>
+        static FinishedDocument BookletOf(Order o)
+        {
+            if (o == null) return null;
+            if (o.Document != null && S.DeskDocuments.Contains(o.Document)) return o.Document;
+            return S.DeskDocuments.Find(d => d.OrderId == o.Id);
         }
 
         /// <summary>The editor thumbnail of a kept photo (a retake lists the old one too).</summary>
@@ -576,13 +991,19 @@ namespace LegitEnoughCI
         /// shoots the first photo on the old French background (light gray): the client spots it,
         /// FIX IT sends them back to the bench, the photo corner seats them again and the job runs a
         /// second time from the stool (pictures of that pass end in "_retake").
+        /// <paramref name="callBack"/> is the player's own retake: with the booklet already bound and
+        /// the client on the bench, the photo corner asks "Another photo?", the client sits again,
+        /// the new photo is kept and picked in the editor, and the job is printed again (pictures of
+        /// that pass end in "_again"); the new booklet is the one handed over.
         /// </summary>
-        static void Job(string tag, int customerId, bool tutorial, bool wrongBackdropFirst = false)
+        static void Job(string tag, int customerId, bool tutorial, bool wrongBackdropFirst = false, bool callBack = false)
         {
             Func<Visit> who = () => VisitOf(customerId);
             Func<Order> order = () => OrderOf(customerId);
             string cid = null;
             bool retaken = !wrongBackdropFirst;
+            bool calledBack = !callBack;
+            bool secondPass = false;
             Func<Backdrop> backdrop = () => retaken ? S.Country(cid).Spec.Photo.Backdrop : Backdrop.LightGray;
 
             Add($"{tag} begin", () => _busyId = customerId, null, null, 0f);
@@ -679,12 +1100,43 @@ namespace LegitEnoughCI
                 S.KeepPhoto(_capture);
                 Note($"photo: {PhotoEvaluator.Score(_capture, S.Country(cid).Spec.Photo)} coverage {_capture.Coverage:0.00}");
             }, $"{tag}_camera_kept");
-            Add($"{tag} done photos", () => Submit("cam-done"), null);
+            Add($"{tag} done photos", () =>
+            {
+                // The kept row says where a better photo comes from (the photo corner; in a retake, the editor).
+                var hint = G.Stage.Q<Label>("cam-retake-note");
+                Check(hint != null, "the camera's kept row has the retake line");
+                if (hint != null)
+                {
+                    string want = secondPass ? "editor" : "photo corner";
+                    Check(hint.text.Contains(want), $"the kept row mentions the {want}, got \"{hint.text}\"");
+                }
+                // The first kept photo is an achievement, but its banner waits for the camera to close.
+                if (tutorial) AchHeld(AchievementCatalog.FirstPhoto, "the camera");
+                Submit("cam-done");
+            }, null);
+            if (tutorial)
+            {
+                // Back in the shop: the quiet banner (R.'s guided Day 1), clear of R.'s note.
+                Add($"{tag} first photo banner", () => AchBanner(AchievementCatalog.FirstPhoto, true, false),
+                    "ach_toast_tutorial", Soon(() => AchShowing(AchievementCatalog.FirstPhoto), 12f), 0f);
+            }
             Add($"{tag} bench", () => Check(!(G.Top is CameraView), "DONE closed the camera"), null,
                 () => who().Phase == VisitPhase.Waiting && !who().Moving, 0.5f);
 
             // The client sheet, then the editor.
-            Add($"{tag} slip", () => G.Open(new SlipView(G, order().Id)), $"{tag}_client_sheet");
+            Add($"{tag} slip", () =>
+            {
+                if (secondPass)
+                {
+                    Check(LinesSeen.Contains(Lines.RetakeDone), $"{tag}: \"{Lines.RetakeDone}\"");
+                    Check(!who().Retake && who().Retakes == 1, $"{tag}: the retake is done (retakes {who().Retakes})");
+                    Check(S.Photos.ForCustomer(customerId).Count >= 2, $"{tag}: both photos kept");
+                    Check(order().Status == OrderStatus.Ready && order().Draft.PhotoId == _firstPhotoId,
+                        $"{tag}: still ready, the draft keeps the old photo until it's picked ({order().Status}, photo {order().Draft.PhotoId})");
+                    Check(S.DeskDocuments.Exists(d => d.Id == _firstDocId), $"{tag}: the first booklet is still on the desk");
+                }
+                G.Open(new SlipView(G, order().Id));
+            }, $"{tag}_client_sheet");
             Add($"{tag} computer", () =>
             {
                 Submit("slip-close");
@@ -716,10 +1168,28 @@ namespace LegitEnoughCI
                 FillDraft(order());
                 G.Find<ComputerView>()?.OpenEditor(order().Id);
             }, null);
+            // A retake: the picker with both photos (NEWEST first, the old one still IN USE).
+            Add($"{tag} editor photo picker", () =>
+            {
+                var sv = G.Stage.Q<ScrollView>(className: "le-os-form");
+                var block = G.Stage.Q("editor-photo");
+                Check(sv != null && block != null, "the editor's photo block");
+                if (sv != null && block != null) sv.ScrollTo(block);
+            }, $"{tag}_editor_photo_picker", null, 0.35f, 40f, () => !secondPass);
             Add($"{tag} number and photo", () =>
             {
                 Submit("editor-docnumber");
                 Check(Labels.Normalize(order().Draft.Get(DocField.DocumentNumber)).Length > 0, "GENERATE filled the number");
+                if (secondPass)
+                {
+                    // Newest first: the new photo leads, the old one is still IN USE until clicked.
+                    var thumbs = G.Stage.Query(className: "le-os-photo").ToList();
+                    Check(thumbs.Count >= 2, $"the editor lists both photos (got {thumbs.Count})");
+                    Check(thumbs.Count > 0 && thumbs[0].name == "editor-photo-" + _capture.Id, $"the newest photo comes first (got {(thumbs.Count > 0 ? thumbs[0].name : "-")})");
+                    Check(HasText(G.Stage.Q("editor-photo"), "NEWEST") && HasText(G.Stage.Q("editor-photo"), "IN USE"), "NEWEST and IN USE tags");
+                    Check(HasText(G.Stage.Q("editor-photo"), "Newest first"), "the 'Newest first' line");
+                    Check(G.Stage.Q("editor-photo-" + _firstPhotoId)?.ClassListContains("le-os-photo--selected") == true, "the old photo is framed as IN USE");
+                }
                 var thumb = PhotoThumb(_capture.Id);
                 Check(thumb != null, "kept photo listed in the editor");
                 if (thumb != null) Click(thumb);
@@ -742,6 +1212,12 @@ namespace LegitEnoughCI
                     Click("hit-printer");
                     Check(!S.Printer.Jammed, "hitting the printer cleared the jam");
                 }, $"{tag}_jam_cleared");
+                // Clearing the jam is an achievement: its banner follows FIRST_PHOTO's if that one's still up.
+                Add($"{tag} jam banner", () =>
+                {
+                    Check(Unlocked(AchievementCatalog.PercussiveMaintenance), "clearing the jam unlocked PERCUSSIVE_MAINTENANCE");
+                    AchBanner(AchievementCatalog.PercussiveMaintenance, true, false);
+                }, null, Soon(() => AchShowing(AchievementCatalog.PercussiveMaintenance), 12f), 0f);
             }
             Add($"{tag} printed", () => _jamSeenAt = -1, $"{tag}_tray", () => WaitForPrint(tag, order().Id), 0.3f, 90f);
             Add($"{tag} print menu", () =>
@@ -767,8 +1243,61 @@ namespace LegitEnoughCI
                 }
                 Submit("print-bind");
                 Check(S.DeskDocuments.Exists(d => d.OrderId == order().Id), "booklet bound");
+                if (secondPass)
+                {
+                    var o = order();
+                    Check(S.DeskDocuments.Count(d => d.OrderId == o.Id) == 2, $"{tag}: two booklets on the desk (got {S.DeskDocuments.Count(d => d.OrderId == o.Id)})");
+                    Check(o.Document != null && o.Document.Id != _firstDocId && o.Document.Data.PhotoId == _capture.Id,
+                        $"{tag}: the order's booklet is the new one, with the new photo (doc {o.Document?.Id}, photo {o.Document?.Data.PhotoId})");
+                    if (o.Document != null)
+                    {
+                        string name = ShopView.BookletName(S, o.Document);
+                        Check(name == $"booklet-{o.Id}-{o.Document.Id}", $"{tag}: the reprint is named '{name}'");
+                    }
+                }
             }, $"{tag}_booklet_on_desk");
-            Add($"{tag} inspect", () => G.Open(new PassportView(G, S.DeskDocuments.Find(d => d.OrderId == order().Id))), $"{tag}_passport");
+            if (callBack)
+            {
+                // The player isn't happy with the photo after all: the photo corner calls her back.
+                Func<bool> skip = () => calledBack;
+                Add($"{tag} call back", () =>
+                {
+                    var v = who();
+                    _firstPhotoId = _capture.Id;
+                    _firstDocId = order().Document?.Id ?? -1;
+                    Note($"{tag} call back: patience {v.PatienceFraction:0.00}, photo {_firstPhotoId}, booklet {_firstDocId}");
+                    Click("hit-photo");
+                    Check(G.Top is ConfirmView && HasText(G.Top.Root, "Another photo?"), "the photo corner asks \"Another photo?\"");
+                    Check(HasText(G.Top?.Root, "print again"), "the question says the booklet needs printing again");
+                }, $"{tag}_photo_corner_another_photo", () => who() != null && S.CanCallBackForPhoto(who().Id), 0.5f, 40f, skip);
+                Add($"{tag} call back yes", () =>
+                {
+                    var v = who();
+                    _patienceBefore = v.Patience;
+                    Submit("confirm-ok");
+                    Check(!(G.Top is ConfirmView), "the question closed");
+                    Check(v.Retake && v.To == Spot.Stool, $"{tag} walks back to the stool (retake {v.Retake}, to {v.To})");
+                    Check(Math.Abs(_patienceBefore - v.PatienceMax * Balance.RetakePatienceCost - v.Patience) < 0.05f, $"{tag}: a call-back costs {Balance.RetakePatienceCost:P0} patience");
+                    Check(!S.CanCallBackForPhoto(v.Id), "no second call-back while she's on her way");
+                    calledBack = true;
+                    secondPass = true;
+                    _shotSuffix = "_again";
+                    Goto($"{tag} seated");
+                }, $"{tag}_called_back", null, 0.6f, 40f, skip);
+            }
+            Add($"{tag} inspect", () =>
+            {
+                if (callBack)
+                {
+                    Check(LinesSeen.Contains(Lines.RetakeCalled(S.Customer(customerId))), $"{tag}: \"{Lines.RetakeCalled(S.Customer(customerId))}\"");
+                    // The desk draws both copies, each under its own name (the shop redraws the desk a frame after binding).
+                    var o = order();
+                    var old = S.DeskDocuments.Find(d => d.Id == _firstDocId);
+                    Check(old != null && G.Stage.Q(ShopView.BookletName(S, old)) != null, $"{tag}: the first booklet is on the desk as 'booklet-{o.Id}'");
+                    Check(o.Document != null && G.Stage.Q(ShopView.BookletName(S, o.Document)) != null, $"{tag}: the reprint is on the desk as 'booklet-{o.Id}-{o.Document?.Id}'");
+                }
+                G.Open(new PassportView(G, BookletOf(order())));
+            }, $"{tag}_passport");
             Add($"{tag} close passport", () => Submit("passport-close"), null);
             Add($"{tag} hand over", () => { }, null, () => TryHandOver(customerId), 0.3f, 60f);
             Add($"{tag} inspecting", null, $"{tag}_inspecting",
@@ -824,9 +1353,48 @@ namespace LegitEnoughCI
             Add($"{tag} gone", () =>
             {
                 Check(order().Status == OrderStatus.Delivered, tag + " order delivered");
+                if (callBack)
+                {
+                    var o = order();
+                    Check(o.Document != null && o.Document.Id != _firstDocId && o.Document.Data.PhotoId != _firstPhotoId,
+                        $"{tag}: delivered the reprint with the new photo (doc {o.Document?.Id}, photo {o.Document?.Data.PhotoId})");
+                    // The first booklet stays behind (no auto-shred): tidy it away like a player would.
+                    var old = S.DeskDocuments.Find(d => d.Id == _firstDocId);
+                    Check(old != null, $"{tag}: the first booklet stayed on the desk");
+                    if (old != null) S.ShredDocument(old.Id);
+                    Check(!S.DeskDocuments.Exists(d => d.OrderId == o.Id), $"{tag}: desk clear after shredding the old copy");
+                }
                 _shotSuffix = "";
                 _busyId = 0;
             }, null, () => who() == null, 0.5f, 60f);
+        }
+
+        /// <summary>
+        /// The four music files import as MusicImport.cs says (streamed Vorbis, not preloaded) and
+        /// load from Resources at the right length. Batch mode plays nothing, so this is the check
+        /// that the player build will find them.
+        /// </summary>
+        static void CheckMusicFiles()
+        {
+            var want = new (string File, float Seconds)[] { ("title_night", 80f), ("shop_day", 240f), ("shop_busy", 240f), ("demo_end", 47.75f) };
+            foreach (var (file, seconds) in want)
+            {
+                string path = "Assets/LegitEnough/Resources/LegitEnough/Music/" + file + ".ogg";
+                var imp = AssetImporter.GetAtPath(path) as AudioImporter;
+                Check(imp != null, "music imported: " + path);
+                if (imp != null)
+                {
+                    var ss = imp.defaultSampleSettings;
+                    Note($"music {file}: {ss.loadType}, {ss.compressionFormat} q{ss.quality:0.00}, preload {ss.preloadAudioData}, background {imp.loadInBackground}");
+                    Check(ss.loadType == AudioClipLoadType.Streaming && ss.compressionFormat == AudioCompressionFormat.Vorbis && !ss.preloadAudioData,
+                        $"music {file} streams Vorbis, not preloaded (got {ss.loadType} {ss.compressionFormat} preload {ss.preloadAudioData})");
+                }
+                var clip = Resources.Load<AudioClip>("LegitEnough/Music/" + file);
+                Check(clip != null, "music loads from Resources: " + file);
+                if (clip == null) continue;
+                Note($"music {file}: {clip.length:0.00} s, {clip.frequency} Hz, {clip.channels} ch, loadType {clip.loadType}");
+                Check(Math.Abs(clip.length - seconds) < 0.1f && clip.channels == 2, $"music {file}: {seconds} s stereo, got {clip.length:0.00} s {clip.channels} ch");
+            }
         }
 
         static bool ToastIs(string text) => ToastsSeen.Contains(text) || HasText(G.Stage.Q(className: "le-toasts"), text);
@@ -863,9 +1431,71 @@ namespace LegitEnoughCI
             {
                 Check(S.IsDemo, "the boot session is the demo");
                 Names("title-play", "title-settings", "title-credits", "title-wishlist", "title-quit", "title-version");
+                Names("title-achievements");
                 Check(HasText(G.Top.Root, "DEMO"), "title says DEMO");
                 Check(G.Stage.Q(className: "le-toasts")?.resolvedStyle.visibility == Visibility.Hidden, "no toasts over the title");
+                MusicIs(MusicCue.Title, "on the title");
+                CheckMusicFiles();
             }, "title_demo", () => G.Top is TitleView, 1.2f);
+            AspectPass("title-play");
+            // ACHIEVEMENTS from the title: nothing earned yet, the demo's 12 first, the other 24 FULL GAME.
+            Add("achievements from the title", () =>
+            {
+                Submit("title-achievements");
+                Check(G.Top is AchievementsView, "ACHIEVEMENTS opened from the title");
+                Check(Book != null && Book.Demo, "the achievements book is the demo's");
+                Check(G.Achievements?.Backend is MemoryAchievementBackend, $"batch runs keep achievements in memory (got {G.Achievements?.Backend?.Name})");
+                Names("ach-view", "ach-count", "ach-grid", "ach-detail", "ach-detail-name", "ach-detail-desc", "ach-detail-progress",
+                    "ach-detail-status", "ach-detail-wishlist", "ach-back");
+                AchCount("from the title");
+                Check(G.Stage.Q<Label>("ach-count")?.text == "DEMO 0 / 12", "the title shows DEMO 0 / 12");
+                int full = 0, demo = 0;
+                foreach (var d in AchievementCatalog.All)
+                {
+                    var cell = G.Stage.Q("ach-cell-" + d.Id);
+                    Check(cell != null, "element 'ach-cell-" + d.Id + "' exists");
+                    if (cell == null) continue;
+                    bool fg = cell.ClassListContains("le-ach__cell--fullgame");
+                    if (fg) full++;
+                    else demo++;
+                    Check(fg != d.Demo, $"{d.Id}: {(d.Demo ? "a demo cell" : "a FULL GAME cell")}");
+                    Check((G.Stage.Q("ach-cell-" + d.Id + "-bar") != null) == (d.IsProgress && d.Demo), $"{d.Id}: a progress bar only on a progress achievement the demo can earn");
+                }
+                Check(demo == 12 && full == 24, $"12 demo cells and 24 FULL GAME cells (got {demo} and {full})");
+                Check(G.Stage.Q<Label>("ach-detail-name")?.text == AchievementCatalog.All[0].Name, "the first cell is picked when it opens");
+            }, "achievements_title", () => G.Top is TitleView);
+            Add("achievements secrets", () =>
+            {
+                // The demo's two secrets stay "???" with their teaser; a FULL GAME secret too.
+                foreach (var id in new[] { AchievementCatalog.SayCheese, AchievementCatalog.NightShift, AchievementCatalog.MixUp })
+                {
+                    var d = AchievementCatalog.Get(id);
+                    Submit("ach-cell-" + id);
+                    string name = G.Stage.Q<Label>("ach-detail-name")?.text, desc = G.Stage.Q<Label>("ach-detail-desc")?.text;
+                    string status = G.Stage.Q<Label>("ach-detail-status")?.text;
+                    Note($"achievements {id}: \"{name}\" / \"{desc}\" / {status}");
+                    Check(name == "???" && desc == d.Teaser, $"{id}: \"???\" and the teaser in the detail, got \"{name}\" / \"{desc}\"");
+                    Check(status == (d.Demo ? "SECRET" : "FULL GAME"), $"{id}: status {(d.Demo ? "SECRET" : "FULL GAME")}, got {status}");
+                }
+                // A FULL GAME one: its real text, the badge and WISHLIST.
+                Submit("ach-cell-" + AchievementCatalog.Jobs25);
+                Check(G.Stage.Q<Label>("ach-detail-name")?.text == AchievementCatalog.Get(AchievementCatalog.Jobs25).Name, "a FULL GAME cell shows its real name");
+                Check(G.Stage.Q<Label>("ach-detail-status")?.text == "FULL GAME", "a FULL GAME cell says FULL GAME");
+            }, "achievements_fullgame");
+            AfterShot(() =>
+            {
+                var wish = G.Stage.Q("ach-detail-wishlist");
+                Check(wish != null && Shown(wish), "a FULL GAME cell shows WISHLIST");
+                Check(!Shown(G.Stage.Q("ach-detail-progress")), "no progress line on a FULL GAME cell");
+                Submit("ach-cell-" + AchievementCatalog.FirstPhoto);
+            });
+            Add("achievements back", () =>
+            {
+                Check(G.Stage.Q("ach-detail-wishlist") == null || !Shown(G.Stage.Q("ach-detail-wishlist")), "no WISHLIST on a demo cell");
+                Submit("ach-back");
+                Check(G.Top is TitleView && G.Top.Root.visible, "BACK returns to the title, shown again");
+                Check(G.Stage.Q("ach-view") == null, "the ACHIEVEMENTS screen closed");
+            }, null);
             Add("credits", () => Submit("title-credits"), "credits");
             Add("credits close", () =>
             {
@@ -878,6 +1508,24 @@ namespace LegitEnoughCI
             {
                 Check(G.Top is SettingsView, "settings opened from the title");
                 Names("settings-volume-down", "settings-volume-up", "settings-fullscreen", "settings-hints", "settings-back");
+                // The MUSIC row: ten pips and -/+, saved like the master volume (restored here).
+                Names("settings-music-down", "settings-music-up", "settings-music-1", "settings-music-10");
+                Check(HasText(G.Top.Root, "MUSIC"), "settings has a MUSIC row");
+                _settingsMusic = GameSettings.MusicVolume;
+                Note($"music setting {_settingsMusic * 10}%");
+                if (_settingsMusic > 0)
+                {
+                    Submit("settings-music-down");
+                    Check(GameSettings.MusicVolume == _settingsMusic - 1, $"MUSIC - lowers it ({GameSettings.MusicVolume})");
+                    Submit("settings-music-up");
+                }
+                else
+                {
+                    Submit("settings-music-up");
+                    Check(GameSettings.MusicVolume == 1, $"MUSIC + raises it ({GameSettings.MusicVolume})");
+                    Submit("settings-music-down");
+                }
+                Check(GameSettings.MusicVolume == _settingsMusic, "MUSIC back where it was");
                 Submit("settings-back");
                 Check(G.Top is TitleView, "BACK returns to the title");
             }, null);
@@ -892,6 +1540,7 @@ namespace LegitEnoughCI
             Add("splash b", null, "splash_b", null, 0.45f);
             Add("splash c", null, "splash_c", null, 0.1f);
             Add("splash d", null, "splash_d", null, 0.05f);
+            Add("splash music", () => MusicIs(MusicCue.Title, "under the splash"), null, null, 0f);
             Add("splash closes", () => Check(!G.Stage.Q(className: "le-toasts").visible || G.Stage.Q(className: "le-toasts").resolvedStyle.visibility == Visibility.Hidden, "toasts still hidden"),
                 null, () => G.Find<SplashView>() == null && G.Top is TitleView, 0.2f, 10f);
 
@@ -908,10 +1557,12 @@ namespace LegitEnoughCI
             Add("read mail", () =>
             {
                 Check(CoachShown(), "coach in the shop");
+                MusicIs(MusicCue.Shop, "in the shop on Day 1");
                 Click("hit-crt");
                 Check(G.Top is ComputerView, "the computer opened");
             }, "day1_messages");
             Add("close computer", () => Submit("os-close"), "day1_coach_open_sign");
+            AspectPass("hit-sign");
             Add("open shop", () =>
             {
                 _busyId = StoryCast.SamirId;
@@ -927,6 +1578,19 @@ namespace LegitEnoughCI
                 Check(ToastIs("Not yet. Your first customer is on his way."), "the sign says why it won't close");
             }, "day1_close_refused", null, 0.1f);
             Job("samir", StoryCast.SamirId, true);
+            // Paid: FIRST_JOB's banner (and QUALITY_90's after it, when the passport was that good).
+            Add("samir paid banners", () =>
+            {
+                var o = OrderOf(StoryCast.SamirId);
+                bool q90 = Unlocked(AchievementCatalog.Quality90);
+                Note($"samir quality {o?.Quality?.Final:0}: QUALITY_90 {(q90 ? "unlocked" : "not unlocked")}; banners seen: {string.Join(", ", AchSeen)}");
+                Check(Unlocked(AchievementCatalog.FirstJob), "Samir's cash unlocked FIRST_JOB");
+                Check(AchSeen.Contains(AchievementCatalog.FirstJob), "the FIRST_JOB banner showed");
+                Check(q90 == (o?.Quality != null && o.Quality.Final >= 90), $"QUALITY_90 follows the passport's quality ({o?.Quality?.Final:0})");
+                if (q90) Check(AchSeen.Contains(AchievementCatalog.Quality90), "the QUALITY_90 banner showed");
+            }, null, Soon(() => AchSeen.Contains(AchievementCatalog.FirstJob)
+                                && (!Unlocked(AchievementCatalog.Quality90) || AchSeen.Contains(AchievementCatalog.Quality90))
+                                && !AchLayerUp() && G.AchToasts.Queued == 0, 20f), 0f);
             Add("samir order", () => _samirOrder = OrderOf(StoryCast.SamirId).Id, "day1_coach_close_early", null, 0.6f);
             CloseEarly("day1");
             Add("day 1 report", () =>
@@ -954,15 +1618,49 @@ namespace LegitEnoughCI
                 Check(po != null && po.Kind == OutcomeKind.Success, "a careful Samir job gets him through");
                 Check(HasText(G.Top.Root, "Samir made it"), "the Day-2 card says Samir made it");
                 Check(S.SaleActive && S.SaleDiscountPercent == 50, $"the Day-2 sale is 50% off (got {S.SaleDiscountPercent}%)");
+                // Samir's word came with the morning mail: SAMIR_MADE_IT, held while the card is up.
+                if (po != null && po.Kind == OutcomeKind.Success) AchHeld(AchievementCatalog.SamirMadeIt, "the Day-2 card");
             }, "day2_card", () => G.Top is DayStartView && S.Day == 2, 1.2f);
             Add("start day 2", () => Submit("daycard-start"), "day2_shop_morning", null, 0.3f);
-            Add("day 2 mail", () => Click("hit-crt"), "day2_messages", null);
-            Add("day 2 mail 2", () =>
+            Add("samir made it banner", () =>
             {
-                var rows = G.Stage.Query(className: "le-os-msg").ToList();
-                Check(rows.Count >= 2, "two new messages");
-                if (rows.Count >= 2) Click(rows[1]);
-            }, "day2_messages_second");
+                Check(AchSeen.Contains(AchievementCatalog.SamirMadeIt), "the SAMIR_MADE_IT banner showed in the shop");
+                if (AchShowing(AchievementCatalog.SamirMadeIt)) AchBanner(AchievementCatalog.SamirMadeIt, null, false);
+            }, "ach_toast_samir", Soon(() => AchShowing(AchievementCatalog.SamirMadeIt), 10f), 0f,
+                skip: () => !Unlocked(AchievementCatalog.SamirMadeIt));
+            // R.'s Day-2 tour: THE MAIL -> THE SHOP (the France update, a look at Germany and the
+            // sale) -> OPEN UP. It never blocks: the script follows it, then does its own rounds.
+            Add("day 2 coach mail", () =>
+            {
+                CoachCheck("hit-crt", "on the computer", "Day 2 morning");
+                Check(CoachCount().StartsWith("THE MAIL"), "Day-2 counter: THE MAIL, got " + CoachCount());
+                MusicIs(MusicCue.Shop, "in the shop on Day 2");
+            }, "day2_coach_mail", Soon(() => CoachOn("hit-crt")));
+            Add("day 2 mail", () => Click("hit-crt"), "day2_messages", null);
+            Message dayTwo = null;
+            Add("day 2 coach messages", () =>
+            {
+                dayTwo = S.Inbox.Messages.FirstOrDefault(m => m.Subject == DemoCast.DayTwoSubject && m.ArrivesAt.Day == 2);
+                Check(dayTwo != null && !dayTwo.Read, "R.'s day-two note is waiting, unread");
+                Check(dayTwo != null && dayTwo.Body.Contains("$80") && dayTwo.Body.Contains("half off"), "R.'s note mentions the $80 update and the half-off gear");
+                var pc = G.Find<ComputerView>();
+                if (pc != null && pc.CurrentApp != "messages")
+                {
+                    CoachCheck("nav-messages", "MESSAGES", "Day 2 computer");
+                    Submit("nav-messages");
+                }
+            }, null, Soon(() => CoachOn("nav-messages") || dayTwo != null && CoachOn("msg-" + dayTwo.Id)));
+            Add("day 2 coach note", () =>
+            {
+                CoachCheck("msg-" + dayTwo.Id, "day two", "Day 2 messages");
+                Click("msg-" + dayTwo.Id);
+                Check(dayTwo.Read, "clicking R.'s note reads it");
+            }, null, Soon(() => dayTwo != null && CoachOn("msg-" + dayTwo.Id)));
+            Add("day 2 coach to shop", () =>
+            {
+                CoachCheck("nav-shop", "SHOP", "Day 2 after the mail");
+                Check(CoachCount().StartsWith("THE SHOP"), "Day-2 counter: THE SHOP, got " + CoachCount());
+            }, "day2_coach_nav_shop", Soon(() => CoachOn("nav-shop")));
             Add("day 2 news", () => Submit("nav-news"), "day2_news_border_watch");
             Add("border watch lock", () =>
             {
@@ -971,6 +1669,7 @@ namespace LegitEnoughCI
                 // Long names drop the wishlist line so the nudge stays on one line.
                 Check(ToastIs("United Kingdom is in the full game."), "locked Border Watch flag toast");
             }, "day2_border_watch_toast");
+            AspectPass("os-close");
             Add("border watch turkey off", () =>
             {
                 // Not taking a country matters in the demo: its client gets turned away at the counter.
@@ -988,17 +1687,40 @@ namespace LegitEnoughCI
                 Check(S.EquipmentLocked(EquipmentCatalog.Get("cam3")) && !S.BuyEquipment("cam3"), "tier-3 camera is FULL GAME");
                 Check(!S.BuyHandbook(Countries.Japan), "Japan handbook is FULL GAME");
             }, "day2_shop_sale_tier3_locks", null, 1.6f);
+            AfterShot(() => CoachClearOfButtons("Day-2 SHOP"));
+            Add("day 2 coach update", () =>
+                {
+                    CoachCheck("shop-update-FR", "UPDATE your binder: $80", "Day 2 SHOP");
+                    Names("shop-update-FR", "shop-buy-DE");
+                }, "day2_coach_shop_update", Soon(() => CoachOn("shop-update-FR")));
+            AfterShot(() => CoachClearOfButtons("Day-2 SHOP, the France update"));
+            AspectPass("os-close");
             Add("day 2 shop scrolled", () => Scroll("le-os-form--full", 700f), "day2_shop_scrolled");
+            AfterShot(() => CoachClearOfButtons("Day-2 SHOP, scrolled"));
             Add("day 2 shop bottom", () => Scroll("le-os-form--full", 10000f), "day2_shop_locked_handbooks_visa");
+            AfterShot(() => CoachClearOfButtons("Day-2 SHOP, at the bottom"));
             Add("buy", () =>
             {
                 // Germany waits until Anja is at the counter (buying it then gets you her job).
                 Scroll("le-os-form--full", 0f);
-                Press(RowButton("FRANCE", "UPDATE"));
+                Submit("shop-update-FR");
                 Check(!S.Country(Countries.France).HandbookOutdated, "bought the France update ($80)");
                 Check(!S.Country(Countries.Germany).Owned, "Germany not bought yet");
             }, "day2_shop_bought");
+            AfterShot(() => CoachClearOfButtons("Day-2 SHOP, update bought"));
+            // After the update: a quiet ring (no arrow) on Germany's BUY and a word on the sale. Your call.
+            Add("day 2 coach extras", () =>
+            {
+                CoachCheck("shop-buy-DE", "half off", "Day 2 after the update", true);
+                Check(CoachText().Contains("Your call"), "the extras note leaves it to the player");
+            }, "day2_coach_shop_extras", Soon(() => CoachOn("shop-buy-DE", true)));
+            AfterShot(() => CoachClearOfButtons("Day-2 SHOP, the extras"));
             Add("day 2 close computer", () => Submit("os-close"), null);
+            Add("day 2 coach open", () =>
+            {
+                CoachCheck("hit-sign", "Flip the sign", "Day 2 after the shop");
+                Check(CoachCount().StartsWith("OPEN UP"), "Day-2 counter: OPEN UP, got " + CoachCount());
+            }, "day2_coach_open_sign", Soon(() => CoachOn("hit-sign")));
             Add("handbook japan", () =>
             {
                 G.ToggleHandbook(Countries.Japan);
@@ -1063,7 +1785,10 @@ namespace LegitEnoughCI
                 Click("hit-sign");
                 Check(S.Phase == DayPhase.Open && !(G.Top is ConfirmView), "the sign stays OPEN while visitors are due");
                 Check(ToastIs("Not yet. Someone's still due today."), "the sign says someone's still due");
+                // Open with the update bought: the morning tour is over.
+                Check(!CoachShown(), "no Day-2 note once the shop is open and up to date, got: " + CoachText());
             }, "day2_close_refused", null, 0.1f);
+            AspectPass("hit-sign");
 
             // ---------------- Day 2 visitors
             // Kenji's picture is taken by Watch whenever he asks; it gets its number here.
@@ -1085,7 +1810,8 @@ namespace LegitEnoughCI
                 Check(elif().Choices.Count == 0 && elif().IsTalking, "Elif is re-offered the job");
             }, "elif_border_watch_turkey_on");
             Add("elif close computer", () => Submit("os-close"), null);
-            Job("elif", DemoCast.ElifId, false);
+            // Elif's job also runs the player's own retake: booklet made, then "Another photo?".
+            Job("elif", DemoCast.ElifId, false, callBack: true);
             Add("elif lines", () => Check(LinesSeen.Contains(DemoCast.TakingJobsAgainLine), $"Elif: \"{DemoCast.TakingJobsAgainLine}\""), null, null, 0f);
             Add("skip to kenji", () =>
             {
@@ -1103,7 +1829,36 @@ namespace LegitEnoughCI
                 Check(o.Urgent && o.CountryId == Countries.France && o.Price >= 1200, $"rush job: France, urgent, $1,200+ (got {o.CountryId} {o.Urgent} {o.Price})");
                 Check(o.Redos == 1, $"one FIX IT (got {o.Redos})");
                 Note($"viktor: due {o.Deadline.Clock}, delivered {o.DeliveredAt?.Clock}, quality {o.Quality}");
+                Check(CuesSeen.Contains(MusicCue.Busy), "the rush job played the busy music");
+                MusicIs(MusicCue.Shop, "after the rush job is delivered");
+                // White backdrop on the day France changed it, and before his deadline.
+                Check(Unlocked(AchievementCatalog.ReadThePaper), "Viktor's redo unlocked READ_THE_PAPER");
+                Check(Unlocked(AchievementCatalog.RushJob), "Viktor's rush job unlocked RUSH_JOB");
             }, null);
+            // The sale: the photo station's upgrade for $350, with Germany's $250 still affordable.
+            Add("upgrade shop", () =>
+            {
+                Click("hit-crt");
+                G.Find<ComputerView>()?.OpenApp("shop");
+                Check(G.Top is ComputerView pc && pc.CurrentApp == "shop", "the computer's SHOP");
+            }, null);
+            Add("upgrade buy", () =>
+            {
+                var stn2 = EquipmentCatalog.Get("stn2");
+                int price = S.PriceOf(stn2), cash = S.Ledger.Cash;
+                Note($"upgrade: stn2 {Labels.Money(price)} on sale {S.SaleActive}, cash {Labels.Money(cash)}");
+                Check(S.SaleActive && price == 350, $"the photo station upgrade is $350 on sale (got {Labels.Money(price)})");
+                Check(cash - price >= 250, $"cash for the upgrade and Germany after it ({Labels.Money(cash)})");
+                Submit("shop-equip-photostation");
+                Check(S.Station.Id == "stn2", $"bought the Adjustable Backdrop Stand (station {S.Station.Id})");
+                Check(Unlocked(AchievementCatalog.FirstUpgrade) || S.Station.Tier >= 2, "the upgrade counts");
+            }, null);
+            Add("upgrade banner", () =>
+            {
+                Check(Unlocked(AchievementCatalog.FirstUpgrade), "the upgrade unlocked FIRST_UPGRADE");
+                AchBanner(AchievementCatalog.FirstUpgrade, null, true);
+            }, "ach_toast_computer", Soon(() => AchShowing(AchievementCatalog.FirstUpgrade), 30f), 0f);
+            Add("upgrade close computer", () => Submit("os-close"), null);
             // Losing focus mid-shift opens the pause menu (GameRoot.PauseShift), once.
             Add("pause on focus loss", () =>
             {
@@ -1125,18 +1880,62 @@ namespace LegitEnoughCI
                 Check(ChoiceIds(anja()) == GameSession.ChoiceIds.Decline, "no Germany section: the decline line only, got " + ChoiceIds(anja()));
                 Check(!S.Country(Countries.Germany).Owned, "Germany not owned yet");
             }, "anja_no_germany_handbook", () => anja() != null && anja().Phase == VisitPhase.Choosing && anja().Choices.Count > 0, 0.3f, 90f);
+            // R. says where the section is: COMPUTER, then SHOP, then Germany's BUY.
+            Add("anja coach computer", () => CoachCheck("hit-crt", "Click the COMPUTER, then SHOP: it's $250", "Anja without a section"),
+                "anja_coach_computer", Soon(() => CoachOn("hit-crt")));
+            Add("anja open computer", () => Click("hit-crt"), null);
+            Add("anja coach shop", () =>
+            {
+                CoachCheck("nav-shop", "SHOP", "Anja, computer open");
+                Submit("nav-shop");
+                Scroll("le-os-form--full", 0f);
+            }, "anja_coach_nav_shop", Soon(() => CoachOn("nav-shop")));
+            AfterShot(() => CoachClearOfButtons("Anja, SHOP open"));
             Add("anja buy germany", () =>
             {
-                Click("hit-crt");
-                G.Find<ComputerView>()?.OpenApp("shop");
-                Scroll("le-os-form--full", 0f);
-                Press(RowButton("GERMANY", "BUY"));
+                CoachCheck("shop-buy-DE", "Germany: BUY", "Anja, in the SHOP");
+                Submit("shop-buy-DE");
                 Check(S.Country(Countries.Germany).Owned, "bought the Germany section ($250) with Anja at the counter");
                 Check(anja().Choices.Count == 0 && anja().IsTalking, "Anja is re-offered the job");
             }, "anja_shop_bought_germany");
+            AfterShot(() => CoachClearOfButtons("Anja, Germany bought"));
             Add("anja close computer", () => Submit("os-close"), null);
             Job("anja", DemoCast.AnjaId, false);
             Add("anja lines", () => Check(LinesSeen.Contains(DemoCast.HandbookBoughtLine), $"Anja: \"{DemoCast.HandbookBoughtLine}\""), null, null, 0f);
+            // Germany bought while she waited, then her job taken.
+            Add("anja just in time", () =>
+            {
+                Check(Unlocked(AchievementCatalog.JustInTime), "buying Germany with Anja at the counter unlocked JUST_IN_TIME");
+                Check(AchSeen.Contains(AchievementCatalog.JustInTime), "the JUST_IN_TIME banner showed");
+            }, null, Soon(() => AchSeen.Contains(AchievementCatalog.JustInTime), 10f), 0f);
+            // Pause -> ACHIEVEMENTS: the count agrees with the book (all demo runs).
+            Add("pause achievements", () =>
+            {
+                G.Open(new PauseView(G));
+                Names("pause-achievements");
+                Submit("pause-achievements");
+                Check(G.Top is AchievementsView, "ACHIEVEMENTS opened from the pause menu");
+                AchCount("from the pause menu");
+                int n = Book?.CountUnlocked(true) ?? 0;
+                Check(n >= 7, $"at least 7 demo achievements by now (got {n})");
+                foreach (var id in new[]
+                         {
+                             AchievementCatalog.FirstPhoto, AchievementCatalog.PercussiveMaintenance, AchievementCatalog.FirstJob,
+                             AchievementCatalog.SamirMadeIt, AchievementCatalog.ReadThePaper, AchievementCatalog.RushJob,
+                             AchievementCatalog.FirstUpgrade, AchievementCatalog.JustInTime,
+                         })
+                    Check(G.Stage.Q("ach-cell-" + id)?.ClassListContains("le-ach__cell--unlocked") == true, $"the {id} cell is unlocked");
+                var all = AchievementCatalog.All.Where(d => Book != null && (Book.Unlocked(d) || Book.Banked(d)))
+                    .Select(d => d.Id + (Book.Banked(d) ? " (banked)" : ""));
+                Note("achievements so far: " + string.Join(", ", all));
+            }, "achievements_pause");
+            Add("pause achievements back", () =>
+            {
+                Submit("ach-back");
+                Check(G.Top is PauseView && G.Top.Root.visible, "BACK returns to the pause menu, shown again");
+                Submit("pause-resume");
+                Check(G.Top == null, "back in the shop");
+            }, null);
             Add("quiet afternoon", () => Check(S.Inbox.Messages.Any(m => m.Body == DemoCast.QuietBody && m.From == "R."), "R. says close up"),
                 "day2_quiet_afternoon", () => S.Inbox.Messages.Any(m => m.Body == DemoCast.QuietBody), 0.5f, 30f);
             CloseEarly("day2");
@@ -1147,6 +1946,17 @@ namespace LegitEnoughCI
                 Check(S.DemoOver, "the demo is over after the Day-2 report");
                 Names("report-finish");
                 Check(G.Stage.Q("report-next") == null, "no NEXT DAY on the last report");
+                // The SHOP screens with R.'s note up were checked for covered buttons (see CoachClearOfButtons).
+                Check(_coachShopChecks >= 3, $"R.'s note was checked against the SHOP's buttons at least 3 times (got {_coachShopChecks})");
+                // Every demo achievement the run earned before the last report showed its banner.
+                foreach (var id in new[]
+                         {
+                             AchievementCatalog.FirstPhoto, AchievementCatalog.PercussiveMaintenance, AchievementCatalog.FirstJob,
+                             AchievementCatalog.SamirMadeIt, AchievementCatalog.ReadThePaper, AchievementCatalog.RushJob,
+                             AchievementCatalog.FirstUpgrade, AchievementCatalog.JustInTime,
+                         })
+                    Check(AchSeen.Contains(id), $"the {id} banner showed during the run");
+                Note("achievement banners seen: " + string.Join(", ", AchSeen));
             }, null);
             Add("finish demo", () => Submit("report-finish"), null);
             Add("demo end", () =>
@@ -1158,7 +1968,17 @@ namespace LegitEnoughCI
                 Check(G.Stage.Q(className: "le-toasts")?.resolvedStyle.visibility == Visibility.Hidden, "no toasts over the demo end");
                 G.Top.OnEscape();
                 Check(G.Top is DemoEndView, "ESC doesn't leave the demo end");
+                MusicIs(MusicCue.End, "on the demo end");
+                // How many of the demo's twelve (all runs), plus what's waiting in the full game.
+                int n = Book?.CountUnlocked(true) ?? -1, banked = Book?.CountBanked() ?? 0;
+                string want = $"You unlocked {n} of {AchievementCatalog.DemoCount} demo achievements.";
+                if (banked > 0) want += $" {banked} more {(banked == 1 ? "is" : "are")} waiting in the full game.";
+                string line = G.Stage.Q<Label>("demoend-achievements")?.text;
+                Note($"demo end achievements: \"{line}\" (banked {banked})");
+                Check(line == want, $"the demo end says \"{want}\", got \"{line}\"");
+                Check(G.AchToasts != null && !AchLayerUp() && G.AchToasts.Queued == 0, "no achievement banner over the demo end, none queued");
             }, "demo_end", () => G.Top is DemoEndView, 1.2f);
+            AspectPass("demoend-wishlist");
             Add("demo end wishlist", () =>
             {
                 _wishlistOpens = StoreLinks.OpenCount;
@@ -1167,8 +1987,18 @@ namespace LegitEnoughCI
             }, "demo_end_wishlist");
             Add("still the end", () => Check(G.Top is DemoEndView && S.Day == 2, "nothing moves on behind the demo end"), null, null, 1f);
             Add("play again", () => Submit("demoend-again"), null);
-            Add("title again", () => Check(S.IsDemo && S.Day == 1 && S.Phase == DayPhase.Morning, "PLAY AGAIN starts a fresh demo"),
-                "title_again", () => G.Top is TitleView, 1f);
+            Add("title again", () =>
+            {
+                Check(S.IsDemo && S.Day == 1 && S.Phase == DayPhase.Morning, "PLAY AGAIN starts a fresh demo");
+                MusicIs(MusicCue.Title, "back on the title");
+                foreach (var cue in new[] { MusicCue.Title, MusicCue.Shop, MusicCue.Busy, MusicCue.End })
+                    Check(CuesSeen.Contains(cue), "music cue played at some point: " + cue);
+                Note("music cues seen: " + string.Join(", ", CuesSeen));
+                Check(_aspectShots == 6 * AspectSizes.Length, $"the aspect pass ran at 6 points x {AspectSizes.Length} sizes (got {_aspectShots})");
+                foreach (var size in AspectSizes)
+                    foreach (var kind in new[] { "note", "toast", "hint" })
+                        Check(AspectSeen.Contains($"{kind} @ {size.x}x{size.y}"), $"the aspect pass saw a {kind} at {size.x}x{size.y}");
+            }, "title_again", () => G.Top is TitleView, 1f);
         }
     }
 }

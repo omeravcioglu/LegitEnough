@@ -22,6 +22,11 @@
 }
 .le-coach__note--done { background-color: #f4e27a; }
 .le-coach__note--final { background-color: #eed65a; border-color: #a8942a; }
+/* The narrow note beside the computer's OS window: a little less paper, and the counter
+   drops under "NOTE FROM R." when the row can't hold both. */
+.le-coach__note--compact { padding: 16px 16px 12px 16px; }
+.le-coach__note--compact .le-coach__tape { left: 130px; }
+.le-coach__note--compact .le-coach__head { flex-wrap: wrap; }
 
 .le-coach__tape {
     position: absolute;

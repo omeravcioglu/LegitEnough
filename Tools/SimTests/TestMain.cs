@@ -48,6 +48,17 @@ namespace LegitEnough.SimTests
                 ("Demo_CounterSignAndClockRules", DemoTests.Demo_CounterSignAndClockRules),
                 ("Retake_VoluntaryFullMode", DemoTests.Retake_VoluntaryFullMode),
                 ("Retake_VoluntaryDemo", DemoTests.Retake_VoluntaryDemo),
+                ("Ach_CatalogValid", AchievementTests.Ach_CatalogValid),
+                ("Ach_BookRules", AchievementTests.Ach_BookRules),
+                ("Ach_FullModeUnchanged", AchievementTests.Ach_FullModeUnchanged),
+                ("Ach_DemoUnchanged", AchievementTests.Ach_DemoUnchanged),
+                ("Ach_DemoDefaultPath", AchievementTests.Ach_DemoDefaultPath),
+                ("Ach_DemoDesignedPath", AchievementTests.Ach_DemoDesignedPath),
+                ("Ach_DemoNightShift", AchievementTests.Ach_DemoNightShift),
+                ("Ach_DemoCarelessSamir", AchievementTests.Ach_DemoCarelessSamir),
+                ("Ach_TutorialNothingEarly", AchievementTests.Ach_TutorialNothingEarly),
+                ("Ach_RuleChangeSameDayOnly", AchievementTests.Ach_RuleChangeSameDayOnly),
+                ("Ach_FullProbes", AchievementTests.Ach_FullProbes),
             };
 
             foreach (var (name, test) in tests)

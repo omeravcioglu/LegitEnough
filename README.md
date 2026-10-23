@@ -83,6 +83,6 @@ None in the game: the art, the two fonts, the UI and the sound are all generated
 
 ## About this repository
 
-This public repository is a **showcase**. It contains the documentation and the **129 source files I wrote** for this project. The complete Unity project, with the store-page material and the trailer, is kept in a private repository.
+This public repository is a **showcase**. It contains the documentation and the **143 source files I wrote** for this project. The complete Unity project, with the store-page material and the trailer, is kept in a private repository.
 
 Copyright © Omer Avcioglu (McHunter Studio). **All rights reserved.** Viewing only; see [LICENSE](LICENSE).

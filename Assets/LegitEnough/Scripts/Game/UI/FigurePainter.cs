@@ -980,16 +980,16 @@ namespace LegitEnough.Game
             }
             else
             {
-                // Seated, seen from the front: thighs come toward the viewer (short and wide),
-                // knees just below the seat, shins straight down to the floor.
+                // Seated, seen from the front: shins straight down from the knees, close together so
+                // the seat's legs show beside them. The lap (thighs toward the viewer) goes over the
+                // torso's hem further down, with the hands resting on it.
                 hipY = feet.y - 1.15f * H;
-                float legW = 0.42f * H * build;
+                float shinW = 0.3f * H * build;
                 for (int side = -1; side <= 1; side += 2)
                 {
-                    float lx = feet.x + side * (0.1f * H + legW * 0.5f);
-                    p.RoundRect(new Rect(lx - legW * 0.45f, hipY + 0.18f * H, legW * 0.9f, feet.y - hipY - 0.26f * H), legW * 0.25f, side > 0 ? pantsDark : pants);
-                    p.Ellipse(new Vector2(lx, feet.y - 0.06f * H), legW * 0.6f, Mathf.Max(1f, 0.1f * H), Shoe);
-                    p.RoundRect(new Rect(lx - legW * 0.6f, hipY - 0.12f * H, legW * 1.2f, 0.42f * H), legW * 0.4f, Draw.Shade(pants, 1.12f));
+                    float lx = feet.x + side * (0.06f * H + shinW * 0.5f);
+                    p.RoundRect(new Rect(lx - shinW * 0.5f, hipY + 0.3f * H, shinW, feet.y - hipY - 0.38f * H), shinW * 0.25f, side > 0 ? pantsDark : pants);
+                    p.Ellipse(new Vector2(lx + side * 0.04f * H, feet.y - 0.07f * H), shinW * 0.62f, Mathf.Max(1f, 0.12f * H), Shoe);
                 }
             }
 
@@ -999,18 +999,21 @@ namespace LegitEnough.Game
             float ww = tw - 0.08f * H;             // waist half-width
             bool shortSleeves = a.Top == TopStyle.TShirt;
 
-            // Arms hang beside the torso (drawn first; the torso overlaps their inner edge).
+            // Arms hang beside the torso (drawn first; the torso overlaps their inner edge). Seated,
+            // they stop at the elbow: the forearms come forward onto the lap, drawn after it.
+            bool lapHands = pose.Seated && !pose.Holding;
             float swing = pose.Walking ? Mathf.Sin(pose.WalkPhase) * 0.16f * H : 0f;
             for (int side = -1; side <= 1; side += 2)
             {
                 float ax = feet.x + side * (sw - 0.17f * H);
-                float armLen = pose.Holding ? 1.85f * H : 2.3f * H + side * swing;
+                float armLen = pose.Holding ? 1.85f * H : lapHands ? LapElbow * H : 2.3f * H + side * swing;
                 Color sleeve = side > 0 ? topDark : Color.Lerp(top, topDark, 0.35f);
                 var arm = new Rect(ax - 0.17f * H, shoulderY + 0.14f * H, 0.34f * H, armLen);
                 p.RoundRect(arm, 0.15f * H, sleeve);
                 if (shortSleeves)
                     p.RoundRect(new Rect(arm.x, arm.y + 0.8f * H, arm.width, armLen - 0.8f * H), 0.15f * H, side > 0 ? Draw.Shade(skin, 0.86f) : skin);
-                p.Ellipse(new Vector2(ax, shoulderY + 0.16f * H + armLen), Mathf.Max(0.9f, 0.15f * H), Mathf.Max(0.9f, 0.18f * H), side > 0 ? Draw.Shade(skin, 0.86f) : skin);
+                if (!lapHands)
+                    p.Ellipse(new Vector2(ax, shoulderY + 0.16f * H + armLen), Mathf.Max(0.9f, 0.15f * H), Mathf.Max(0.9f, 0.18f * H), side > 0 ? Draw.Shade(skin, 0.86f) : skin);
             }
 
             // Hoodies wear their hood behind the neck.
@@ -1030,6 +1033,7 @@ namespace LegitEnough.Game
             p.Line(new Vector2(feet.x - tw, shoulderY + 0.8f * H), new Vector2(feet.x - ww, hipY + 0.1f * H), seam, 1f);
             p.Line(new Vector2(feet.x + tw, shoulderY + 0.8f * H), new Vector2(feet.x + ww, hipY + 0.1f * H), seam, 1f);
             BodyDetails(p, a, feet.x, shoulderY, hipY, tw, ww, H, top, topDark, topLight);
+            if (pose.Seated) Lap(p, feet.x, shoulderY, hipY, sw, ww, H, lapHands, shortSleeves, top, topDark, pants, pantsDark, skin);
 
             float headH = H;
             var headC = new Vector2(feet.x, shoulderY - 0.2f * H - headH * 0.5f);
@@ -1049,6 +1053,35 @@ namespace LegitEnough.Game
 
             DrawHead(p, headC, headH, a, head);
             return headC;
+        }
+
+        /// <summary>
+        /// A seated figure's lap seen from the front: the thighs come toward the viewer as a wide,
+        /// lit band over the coat's hem, split down the middle, and the hands rest on the knees.
+        /// This is what reads as "sitting" at shop-floor size, chair or no chair.
+        /// </summary>
+        /// <summary>Seated upper-arm length (heads): the elbows bend above the lap.</summary>
+        const float LapElbow = 1.35f;
+
+        static void Lap(PixelPainter p, float x, float shoulderY, float hipY, float sw, float ww, float H, bool hands,
+            bool shortSleeves, Color top, Color topDark, Color pants, Color pantsDark, Color skin)
+        {
+            float lapW = ww + 0.4f * H;
+            var lap = new Rect(x - lapW, hipY + 0.02f * H, lapW * 2f, 0.38f * H);
+            p.RoundRect(lap, 0.12f * H, Draw.Shade(pants, 1.14f));
+            // The knees' front faces, a step darker, and the gap between the thighs.
+            p.Rect(new Rect(lap.x + 0.06f * H, lap.yMax - 0.12f * H, lap.width - 0.12f * H, 0.12f * H), pants);
+            p.Line(new Vector2(x, lap.y + 0.08f * H), new Vector2(x, lap.yMax), pantsDark, 1f);
+            if (!hands) return;
+            for (int side = -1; side <= 1; side += 2)
+            {
+                var elbow = new Vector2(x + side * (sw - 0.17f * H), shoulderY + 0.14f * H + (LapElbow - 0.12f) * H);
+                var hand = new Vector2(x + side * lapW * 0.6f, lap.y + 0.1f * H);
+                Color sleeve = side > 0 ? topDark : Color.Lerp(top, topDark, 0.35f);
+                Color hs = side > 0 ? Draw.Shade(skin, 0.86f) : skin;
+                p.Line(elbow, hand, shortSleeves ? hs : sleeve, Mathf.Max(1f, 0.32f * H));
+                p.Ellipse(hand, Mathf.Max(0.9f, 0.17f * H), Mathf.Max(0.9f, 0.14f * H), hs);
+            }
         }
 
         static void TorsoPath(PixelPainter p, float x, float shoulderY, float hipY, float sw, float tw, float ww, float H)

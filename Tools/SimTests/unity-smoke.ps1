@@ -8,7 +8,7 @@
 #         3 = Unity timed out.
 param(
     [Parameter(Mandatory = $true)][string]$Out,
-    [string]$UnityExe = "C:\Program Files\Unity\Hub\Editor\6000.0.32f1\Editor\Unity.exe",
+    [string]$UnityExe = "C:\Program Files\Unity\Hub\Editor\6000.0.85f1\Editor\Unity.exe",
     [int]$TimeoutMinutes = 30
 )
 $ErrorActionPreference = "Stop"

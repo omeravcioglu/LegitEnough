@@ -32,8 +32,11 @@
     --le-os-title: #4b3f6e;
 }
 
+/* The panel is at least 1920x1080 (Expand); the stage sits centred in it and clips its own
+   children. Whatever is left over on a non-16:9 screen is the root: plain letterbox/pillarbox
+   bars in the shop's near-black, the same as the black cards (day card, splash). */
 .le-root {
-    background-color: var(--le-bg);
+    background-color: rgb(6, 5, 4);
     -unity-font-definition: resource("LegitEnough/Fonts/LegitPixel");
     font-size: 24px;
     color: var(--le-text);

@@ -3,7 +3,7 @@ loudness (BS.1770), true peak, clipping, DC, mono fold-down, low end, loop seams
 level step, loudness step, spectral flux), the Vorbis decode (length, offset, error), and
 spectrogram / loudness PNGs into Tools/Music/out/.
 
-Usage:  python Tools/Music/analyze.py            (all cues in Tools/Music/out + the game .ogg)
+Usage:  python Tools/Music/analyze.py   (the masters compose.py left in %TEMP%/LegitEnoughMusic + the game .ogg)
 """
 import json
 import os
@@ -22,8 +22,10 @@ from audio import dsp  # noqa: E402
 from audio.dsp import SR, n_of  # noqa: E402
 
 OUT = os.path.join(HERE, "out")
+WORK = os.path.join(__import__("tempfile").gettempdir(), "LegitEnoughMusic")
 GAME = os.path.join(ROOT, "Assets", "LegitEnough", "Resources", "LegitEnough", "Music")
 CUES = [("title_night", True), ("shop_day", True), ("shop_busy", True), ("demo_end", False)]
+BAR_SEC = {"title_night": 4 * 60 / 72.0, "shop_day": 4 * 60 / 96.0, "shop_busy": 4 * 60 / 96.0}
 
 
 def load_wav(p):
@@ -50,7 +52,25 @@ def momentary(x, win=0.4, hop=0.1, circular=False):
     return -0.691 + 10 * np.log10(np.maximum(ms, 1e-12)), starts
 
 
-def seam_report(x):
+def bar_steps(x, bar_sec):
+    """20 ms RMS step and 400 ms loudness step across every bar line inside the loop (the loop
+    point is a bar line too, so this is what the seam should look like)."""
+    L = x.shape[1]
+    w, mw = n_of(0.02), n_of(0.4)
+    kx = dsp._k_weight(x)
+    rs, ms = [], []
+    for b in np.arange(bar_sec, L / SR - 0.5, bar_sec):
+        i = n_of(b)
+        a = np.sqrt(np.mean(x[:, i - w:i] ** 2)) + 1e-9
+        c = np.sqrt(np.mean(x[:, i:i + w] ** 2)) + 1e-9
+        rs.append(abs(20 * np.log10(c / a)))
+        pa = np.sum(np.mean(kx[:, i - mw:i] ** 2, axis=1))
+        pc = np.sum(np.mean(kx[:, i:i + mw] ** 2, axis=1))
+        ms.append(abs(10 * np.log10(pc / pa)))
+    return np.array(rs), np.array(ms)
+
+
+def seam_report(x, bar_sec=None):
     """Compare what happens across the loop point with what happens anywhere else."""
     L = x.shape[1]
     d = np.abs(np.diff(x, axis=1))
@@ -85,7 +105,17 @@ def seam_report(x):
     fj = flux(j)
     c = (n_of(3) - nfft // 2) // hop
     seam_flux = float(max(fj[c - 2:c + 3]))
-    return dict(
+    extra = {}
+    if bar_sec:
+        rs, ms = bar_steps(x, bar_sec)
+        kx = dsp._k_weight(np.concatenate([x[:, -n_of(3):], x[:, :n_of(3)]], axis=1))
+        i, mw = n_of(3), n_of(0.4)
+        pa = np.sum(np.mean(kx[:, i - mw:i] ** 2, axis=1))
+        pc = np.sum(np.mean(kx[:, i:i + mw] ** 2, axis=1))
+        extra = dict(bar_rms20_step_median_db=float(np.median(rs)), bar_rms20_step_max_db=float(np.max(rs)),
+                     seam_loud400_step_lu=float(abs(10 * np.log10(pc / pa))),
+                     bar_loud400_step_median_lu=float(np.median(ms)), bar_loud400_step_max_lu=float(np.max(ms)))
+    return dict(**extra,
         sample_jump=jump, median_step=typical, p999_step=p999, jump_percentile=pct,
         rms20_step_db=float(seam_step), rms20_step_p50_db=float(np.percentile(steps, 50)), rms20_step_p99_db=float(np.percentile(steps, 99)),
         momentary_step_lu=seam_dm, momentary_step_p50_lu=float(np.percentile(dm, 50)), momentary_step_p95_lu=float(np.percentile(dm, 95)),
@@ -134,9 +164,9 @@ def spectrogram_png(x, path, title, width=1600, height=420, fmin=30.0, fmax=1600
     rows = np.geomspace(fmin, fmax, height)[::-1]
     idx = np.clip(np.searchsorted(f, rows), 0, f.size - 1)
     img = S[idx, :]
-    cols = np.linspace(0, img.shape[1] - 1, width).astype(int)
-    img = img[:, cols]
-    v = (img + 110) / 90.0
+    edges = np.linspace(0, img.shape[1], width + 1).astype(int)
+    img = np.stack([img[:, a:max(a + 1, b)].max(axis=1) for a, b in zip(edges[:-1], edges[1:])], axis=1)
+    v = (img + 105) / 70.0
     rgb = _cmap(v)
     pad_l, pad_b, pad_t = 60, 90, 24
     canvas = Image.new("RGB", (width + pad_l + 10, height + pad_b + pad_t), (18, 16, 20))
@@ -186,13 +216,13 @@ def seam_png(x, path, title, side=4.0):
 def main():
     report = {}
     for name, loop in CUES:
-        wav = os.path.join(OUT, name + ".wav")
+        wav = os.path.join(WORK, name + ".wav")
         if not os.path.exists(wav):
             continue
         x = load_wav(wav)
         r = basic(x)
         if loop:
-            r["seam"] = seam_report(x)
+            r["seam"] = seam_report(x, BAR_SEC[name])
         ogg = os.path.join(GAME, name + ".ogg")
         if os.path.exists(ogg):
             y = decode(ogg)
@@ -207,7 +237,7 @@ def main():
             r["ogg_true_peak_dbtp"] = dsp.true_peak_db(y)
             r["ogg_lufs_i"] = dsp.lufs(y)
             if loop:
-                r["ogg_seam"] = seam_report(y)
+                r["ogg_seam"] = seam_report(y, BAR_SEC[name])
         spectrogram_png(x, os.path.join(OUT, name + "_spectrogram.png"), f"{name}  {r['seconds']:.1f} s  {r['lufs_i']:.1f} LUFS  TP {r['true_peak_dbtp']:.1f} dBTP")
         if loop:
             seam_png(x, os.path.join(OUT, name + "_seam.png"), name)

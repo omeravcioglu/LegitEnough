@@ -3,7 +3,7 @@
 # Seconds instead of a full Unity import. Does not run anything.
 # Usage:  powershell -ExecutionPolicy Bypass -File Tools/Trailer/compile-check.ps1
 param(
-    [string]$Unity = "C:\Program Files\Unity\Hub\Editor\6000.0.32f1\Editor\Data"
+    [string]$Unity = "C:\Program Files\Unity\Hub\Editor\6000.0.85f1\Editor\Data"
 )
 $ErrorActionPreference = "Stop"
 $root = Resolve-Path (Join-Path $PSScriptRoot "..\..")

@@ -135,7 +135,17 @@ namespace LegitEnough.Game
                 names.Add(c.Spec.Name);
             }
             if (names.Count > 0) Ui.Text("Waiting for you: " + Names(names) + ".", "le-demoend__caption", col);
+            if (Game.Achievements?.Book != null) Ui.Text(AchievementLine(Game.Achievements.Book), "le-demoend__caption", col).name = "demoend-achievements";
             flags.Add(UiArt.Image(DemoArt.FullGameBadge(), 3, "le-demoend__badge"));
+        }
+
+        /// <summary>All demo runs on this machine count; banked ones are granted when the full game starts.</summary>
+        static string AchievementLine(AchievementBook book)
+        {
+            string line = $"You unlocked {book.CountUnlocked(true)} of {AchievementCatalog.DemoCount} demo achievements.";
+            int banked = book.CountBanked();
+            if (banked > 0) line += $" {banked} more {(banked == 1 ? "is" : "are")} waiting in the full game.";
+            return line;
         }
 
         void Wishlist()

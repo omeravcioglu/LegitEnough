@@ -7,7 +7,7 @@
 # Then:   python Tools/Trailer/make_trailer.py --takes <folder>/capture/takes
 param(
     [Parameter(Mandatory = $true)][string]$Out,
-    [string]$UnityExe = "C:\Program Files\Unity\Hub\Editor\6000.0.32f1\Editor\Unity.exe",
+    [string]$UnityExe = "C:\Program Files\Unity\Hub\Editor\6000.0.85f1\Editor\Unity.exe",
     [string]$Only = "",
     [int]$TimeoutMinutes = 75
 )

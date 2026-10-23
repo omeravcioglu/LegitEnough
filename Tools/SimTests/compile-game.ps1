@@ -2,7 +2,7 @@
 # the simulation, against the same engine references Unity uses. Does not run anything.
 # Usage:  powershell -ExecutionPolicy Bypass -File Tools/SimTests/compile-game.ps1
 param(
-    [string]$Unity = "C:\Program Files\Unity\Hub\Editor\6000.0.32f1\Editor\Data"
+    [string]$Unity = "C:\Program Files\Unity\Hub\Editor\6000.0.85f1\Editor\Data"
 )
 $ErrorActionPreference = "Stop"
 $root = Resolve-Path (Join-Path $PSScriptRoot "..\..")

@@ -17,7 +17,8 @@ namespace LegitEnough.Game
         {
             game.Shop.Renderer.TitleMood = true;
             bool demo = S.IsDemo;
-            var panel = Ui.El("le-title" + (demo ? " le-title--demo" : ""), Root).At(72, 64, 520, -1);
+            // le-title--ach: the demo menu sits a little tighter so the extra row keeps the panel off the CRT.
+            var panel = Ui.El("le-title le-title--ach" + (demo ? " le-title--demo" : ""), Root).At(72, 64, 520, -1);
             // The demo logo is taller (DEMO stamp under ENOUGH): x5 keeps the panel above the CRT.
             panel.Add(UiArt.Image(demo ? DemoLogo() : UiArt.Logo(), demo ? 5 : 6, "le-title__logo"));
             var menu = Ui.El("le-title__menu", panel);
@@ -25,6 +26,7 @@ namespace LegitEnough.Game
             {
                 Ui.Btn("▶ PLAY DEMO", Close, "le-btn--menu", menu).name = "title-play";
                 Ui.Btn("SETTINGS", () => Game.Open(new SettingsView(Game)), "le-btn--menu", menu).name = "title-settings";
+                Ui.Btn("ACHIEVEMENTS", OpenAchievements, "le-btn--menu", menu).name = "title-achievements";
                 Ui.Btn("CREDITS", ToggleCredits, "le-btn--menu", menu).name = "title-credits";
                 Ui.Btn("WISHLIST ON STEAM", StoreLinks.OpenWishlist, "le-btn--menu le-btn--wish", menu).name = "title-wishlist";
                 Ui.Btn("QUIT", game.QuitGame, "le-btn--menu", menu).name = "title-quit";
@@ -36,6 +38,7 @@ namespace LegitEnough.Game
             else
             {
                 Ui.Btn("▶ NEW BUSINESS", Close, "le-btn--menu", menu).name = "title-play";
+                Ui.Btn("ACHIEVEMENTS", OpenAchievements, "le-btn--menu", menu).name = "title-achievements";
                 _hints = Ui.Btn(HintsLabel(), ToggleHints, "le-btn--menu", menu);
                 Ui.Btn("CREDITS", ToggleCredits, "le-btn--menu", menu).name = "title-credits";
                 Ui.Btn("QUIT", game.QuitGame, "le-btn--menu", menu).name = "title-quit";
@@ -54,6 +57,12 @@ namespace LegitEnough.Game
             b.Blit(logo, 0, 0);
             b.Blit(tag, DemoArt.DemoTagX, DemoArt.DemoTagY);
             return b;
+        }
+
+        void OpenAchievements()
+        {
+            if (_credits != null) ToggleCredits();
+            Game.Open(new AchievementsView(Game));
         }
 
         string HintsLabel() => Game.ShowHints ? "HINTS: ON" : "HINTS: OFF";

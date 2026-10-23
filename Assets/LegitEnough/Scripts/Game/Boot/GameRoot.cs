@@ -32,6 +32,10 @@ namespace LegitEnough.Game
         public VisualElement Stage { get; private set; }
         public ShopView Shop { get; private set; }
         public Toasts Toasts { get; private set; }
+        /// <summary>Achievements: the book, the backend for this edition and the tracker on the session.</summary>
+        public AchievementService Achievements { get; private set; }
+        /// <summary>The unlock banners (above the toasts).</summary>
+        public AchievementToasts AchToasts { get; private set; }
         /// <summary>R.'s Day-1 notes (demo only; it stays hidden otherwise).</summary>
         public TutorialCoach Coach { get; private set; }
         public bool ShowHints = true;
@@ -63,7 +67,10 @@ namespace LegitEnough.Game
             GameSettings.ApplyFrameCap();
             if (FindFirstObjectByType<AudioListener>() == null) gameObject.AddComponent<AudioListener>();
             gameObject.AddComponent<SfxPlayer>();
+            // Background music follows the game state on its own (it plays nothing in batch runs).
+            gameObject.AddComponent<MusicPlayer>();
             GameSettings.ApplySaved(this);
+            Achievements = AchievementService.Create();
             CreateDocument();
         }
 
@@ -74,6 +81,11 @@ namespace LegitEnough.Game
             // The studio ident plays over the title, then fades into it. Batch runs (smoke test,
             // store shots, trailer) go straight to the title they wait for.
             if (!Application.isBatchMode) Open(new SplashView(this));
+        }
+
+        void OnApplicationQuit()
+        {
+            Achievements?.Shutdown();
         }
 
         void OnDestroy()
@@ -109,11 +121,15 @@ namespace LegitEnough.Game
             Debug.unityLogger.logEnabled = logs;
             panel.name = "LegitEnough Panel";
             panel.themeStyleSheet = Resources.Load<ThemeStyleSheet>("LegitEnough/UI/LegitEnoughTheme");
+            // The whole 1920x1080 stage is always on screen: Expand scales by min(w/1920, h/1080),
+            // so the panel is never smaller than the stage in either direction. LayoutStage centres
+            // the stage and the rest of the panel stays the dark root (bars at the sides on 21:9,
+            // above and below on 16:10, 4:3 and the Steam Deck). Shrink cropped instead.
             panel.scaleMode = PanelScaleMode.ScaleWithScreenSize;
             panel.referenceResolution = new Vector2Int((int)StageWidth, (int)StageHeight);
-            panel.screenMatchMode = PanelScreenMatchMode.Shrink;
+            panel.screenMatchMode = PanelScreenMatchMode.Expand;
             panel.clearColor = true;
-            panel.colorClearValue = new Color(0.035f, 0.03f, 0.028f, 1f);
+            panel.colorClearValue = new Color(6f / 255f, 5f / 255f, 4f / 255f, 1f); // the bars' colour (.le-root)
 
             var go = new GameObject("LegitEnough UI");
             go.transform.SetParent(transform, false);
@@ -127,7 +143,7 @@ namespace LegitEnough.Game
             if (sheet != null) _root.styleSheets.Add(sheet);
             else Debug.LogWarning("LegitEnough: Main.uss not found in Resources/LegitEnough/UI.");
             // The demo's screens, locks and tutorial notes each keep their own sheet.
-            foreach (var extra in new[] { "DemoBoot", "DemoLocks", "DemoTutorial" })
+            foreach (var extra in new[] { "DemoBoot", "DemoLocks", "DemoTutorial", "Achievements" })
             {
                 var more = Resources.Load<StyleSheet>("LegitEnough/UI/" + extra);
                 if (more != null) _root.styleSheets.Add(more);
@@ -136,12 +152,22 @@ namespace LegitEnough.Game
             _root.RegisterCallback<GeometryChangedEvent>(_ => LayoutStage());
         }
 
+        /// <summary>
+        /// Centres the stage in the panel. With Expand the panel is at least 1920x1080, so the
+        /// offsets are never negative: whatever is left over is letterbox/pillarbox (the root's
+        /// dark background; the stage clips its own children, so nothing reaches the bars).
+        /// The offset lands on a whole screen pixel so the pixel art keeps one grid everywhere.
+        /// </summary>
         void LayoutStage()
         {
             if (Stage == null) return;
             var r = _root.layout;
-            Stage.style.left = Mathf.Round((r.width - StageWidth) * 0.5f);
-            Stage.style.top = Mathf.Round((r.height - StageHeight) * 0.5f);
+            if (float.IsNaN(r.width) || float.IsNaN(r.height) || r.width <= 0f) return;
+            var target = _doc != null && _doc.panelSettings != null ? _doc.panelSettings.targetTexture : null;
+            float screenW = target != null ? target.width : Screen.width;
+            float px = screenW > 0f ? screenW / r.width : 1f; // screen pixels per panel unit
+            Stage.style.left = Mathf.Round(Mathf.Max(0f, r.width - StageWidth) * 0.5f * px) / px;
+            Stage.style.top = Mathf.Round(Mathf.Max(0f, r.height - StageHeight) * 0.5f * px) / px;
         }
 
         public void NewGame(ulong seed)
@@ -149,6 +175,7 @@ namespace LegitEnough.Game
             foreach (var o in _overlays.ToArray()) CloseOverlay(o);
             _root.Clear();
             Session = DemoBuild ? new GameSession(seed, GameRules.Demo()) : new GameSession(seed);
+            Achievements?.Attach(Session);
             Stage = Ui.El("le-stage", _root).At(0, 0, StageWidth, StageHeight);
             Shop = new ShopView(this, Stage);
             _overlayLayer = Ui.El("le-overlay-layer", Stage).At(0, 0, StageWidth, StageHeight);
@@ -157,6 +184,7 @@ namespace LegitEnough.Game
             Coach = new TutorialCoach(this);
             Stage.Add(Coach.Root);
             Toasts = new Toasts(Stage);
+            AchToasts = new AchievementToasts(this, Stage);
             _toastLayer = Stage.Q(className: "le-toasts");
             _toastsHidden = false;
             _reportShown = false;
@@ -227,6 +255,7 @@ namespace LegitEnough.Game
             Session.Paused = paused;
             Session.Tick(dt);
             foreach (var e in Session.DrainEvents()) OnSimEvent(e);
+            Achievements?.Tick(this, dt);
 
             Shop.Tick(dt);
             foreach (var o in _overlays.ToArray()) o.Tick(dt);
@@ -234,6 +263,8 @@ namespace LegitEnough.Game
             SyncToasts();
             Toasts.Tick(dt);
             DayFlow();
+            // After DayFlow: a day card opened this frame is already on top when the banner decides.
+            AchToasts?.Tick(dt);
         }
 
         /// <summary>
@@ -292,8 +323,8 @@ namespace LegitEnough.Game
                 return;
             }
             if (IsTyping()) return;
-            // Menu screens (and the settings card) take no shop shortcuts.
-            if (MenuUp || Find<SettingsView>() != null) return;
+            // Menu screens (and the settings and achievements cards) take no shop shortcuts.
+            if (MenuUp || Find<SettingsView>() != null || Find<AchievementsView>() != null) return;
 
             if (kb.hKey.wasPressedThisFrame) ToggleHandbook();
             if (kb.spaceKey.wasPressedThisFrame && Top is CameraView cam) cam.Shutter();
