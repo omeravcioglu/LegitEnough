@@ -143,7 +143,7 @@ namespace LegitEnough.Game
             if (sheet != null) _root.styleSheets.Add(sheet);
             else Debug.LogWarning("LegitEnough: Main.uss not found in Resources/LegitEnough/UI.");
             // The demo's screens, locks and tutorial notes each keep their own sheet.
-            foreach (var extra in new[] { "DemoBoot", "DemoLocks", "DemoTutorial", "Achievements" })
+            foreach (var extra in new[] { "DemoBoot", "DemoLocks", "DemoTutorial", "Achievements", "Crop" })
             {
                 var more = Resources.Load<StyleSheet>("LegitEnough/UI/" + extra);
                 if (more != null) _root.styleSheets.Add(more);

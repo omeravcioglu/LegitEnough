@@ -43,13 +43,14 @@ Set-Content -Path $rsp -Value $lines -Encoding UTF8
 if ($LASTEXITCODE -ne 0) { Write-Host "GAME COMPILE FAILED" -ForegroundColor Red; exit 1 }
 Write-Host "Game layer compiles." -ForegroundColor Green
 
-# Second pass: the editor-side scripts that drive the game (smoke test, store shots, the build
-# script) compile together with Sim+Game against the same (editor) references. Otherwise an API
+# Second pass: the editor-side scripts that drive the game (smoke test, store shots, room preview,
+# the build script) compile together with Sim+Game against the same (editor) references. Otherwise an API
 # change only shows up minutes into a batch Unity import. StoreShots reaches PixelFont.NoText by
 # reflection (store-shots.ps1 patches it into its copy), so the unpatched sources compile as they are.
 $editorSources = @()
 $editorSources += Join-Path $root "Tools\SimTests\UnitySmoke\SmokeTest.cs"
 $editorSources += Join-Path $root "Steam\store\harness\StoreShots.cs"
+$editorSources += Join-Path $root "Tools\RoomPreview\RoomPreview.cs"
 $editorDir = Join-Path $root "Assets\LegitEnough\Editor"
 if (Test-Path $editorDir) { $editorSources += Get-ChildItem -Recurse -Filter *.cs $editorDir | ForEach-Object { $_.FullName } }
 $rsp2 = Join-Path $out "editor.rsp"
@@ -60,5 +61,5 @@ $lines2 += ($sources + $editorSources) | ForEach-Object { "`"$_`"" }
 Set-Content -Path $rsp2 -Value $lines2 -Encoding UTF8
 
 & $dotnet $csc -noconfig "@$rsp2"
-if ($LASTEXITCODE -ne 0) { Write-Host "EDITOR SCRIPTS COMPILE FAILED (SmokeTest / StoreShots / Assets/LegitEnough/Editor)" -ForegroundColor Red; exit 1 }
-Write-Host "Smoke test, store shots and editor scripts compile." -ForegroundColor Green
+if ($LASTEXITCODE -ne 0) { Write-Host "EDITOR SCRIPTS COMPILE FAILED (SmokeTest / StoreShots / RoomPreview / Assets/LegitEnough/Editor)" -ForegroundColor Red; exit 1 }
+Write-Host "Smoke test, store shots, room preview and editor scripts compile." -ForegroundColor Green

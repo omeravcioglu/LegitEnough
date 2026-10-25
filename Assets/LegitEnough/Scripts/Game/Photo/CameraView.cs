@@ -34,6 +34,7 @@ namespace LegitEnough.Game
         readonly Button _eyesBtn;
         readonly Button _glassesBtn;
         readonly Button _hatBtn;
+        readonly Button _doneBtn;
         readonly VisualElement _swatches;
         readonly VisualElement _kept;
         readonly Dictionary<Backdrop, Button> _swatchButtons = new Dictionary<Backdrop, Button>();
@@ -142,7 +143,9 @@ namespace LegitEnough.Game
             var bottom = Ui.El("le-row le-row--end le-cam-panel__bottom", panel);
             Ui.Btn("HANDBOOK (H)", () => Game.ToggleHandbook(order?.CountryId), "le-btn--ghost", bottom).name = "cam-handbook";
             Ui.Btn("STEP AWAY (ESC)", Close, "le-btn--ghost", bottom).name = "cam-away";
-            Ui.Btn("DONE - THANK YOU", Done, "le-btn--primary", bottom).name = "cam-done";
+            // Lit only once there's a kept photo to finish with; before that SHUTTER is the move.
+            _doneBtn = Ui.Btn("DONE - THANK YOU", Done, "", bottom);
+            _doneBtn.name = "cam-done";
         }
 
         void Say(PhotoCommand cmd)
@@ -222,6 +225,7 @@ namespace LegitEnough.Game
 
             string keptKey = "";
             var kept = S.Photos.ForCustomer(_visit.Customer.Id);
+            _doneBtn.EnableInClassList("le-btn--primary", kept.Count > 0 && !(_visit.Order?.NeedsRetake ?? false));
             foreach (var k in kept) keptKey += k.Id + ":" + k.Crop + ",";
             if (keptKey != _keptKey)
             {

@@ -132,7 +132,7 @@ namespace LegitEnough.Game
             RenderPage(_left, Handbook.Passport(rules));
             var photo = Handbook.Photo(rules);
             RenderPage(_right, photo);
-            _right.Add(new Painted((p, r) => DrawCoverageDiagram(p, r, rules.Photo), "le-coverage-diagram"));
+            _right.Add(CoverageDiagram(rules.Photo));
             RenderPage(_right, Handbook.Notes(rules));
             if (state2.HandbookOutdated)
             {
@@ -252,24 +252,110 @@ namespace LegitEnough.Game
             }
         }
 
+        // The coverage diagram: a small copy of the CROP screen's guides, so the binder and the
+        // crop ruler read the same way (Sim Framing: ruler zero on the dashed TOP OF HEAD line).
+        // The page squeezes it, so everything is laid out from the height it actually gets.
+        const float DiagramFrameTop = 4f;
+        const float DiagramFrameX = 30f;
+        const float DiagramNoseRoom = 28f;
+        static readonly Color DiagramInk = new Color(0.2f, 0.18f, 0.16f);
+        static readonly Color DiagramRed = new Color(0.65f, 0.15f, 0.12f);
+
+        static Rect DiagramFrame(Rect r)
+        {
+            float h = Mathf.Max(60f, r.height - DiagramFrameTop - DiagramNoseRoom);
+            return new Rect(DiagramFrameX, DiagramFrameTop, h * 35f / 45f, h);
+        }
+
+        static float DiagramRulerX(Rect frame) => frame.xMax + 16f;
+
+        static VisualElement CoverageDiagram(PhotoRules rules)
+        {
+            var d = new Painted((p, r) => DrawCoverageDiagram(p, r, rules), "le-coverage-diagram");
+            d.style.marginTop = 4f;
+            d.style.marginBottom = 8f;
+            var top = DiagramLabel(d, "TOP OF HEAD", null);
+            var chin = DiagramLabel(d, $"CHIN {Labels.Percent(rules.CoverageMin)} - {Labels.Percent(rules.CoverageMax)}", DiagramRed);
+            var nose = DiagramLabel(d, "NOSE", null);
+            nose.style.unityTextAlign = TextAnchor.MiddleCenter;
+            d.RegisterCallback<GeometryChangedEvent>(_ =>
+            {
+                var frame = DiagramFrame(d.contentRect);
+                var crop = new LegitEnough.Sim.Box(0f, frame.y, 1f, frame.height);
+                float x = DiagramRulerX(frame) + 22f;
+                Place(top, x, Framing.GuideY(crop));
+                Place(chin, x, Framing.RulerY(crop, (rules.CoverageMin + rules.CoverageMax) * 0.5f));
+                Place(nose, frame.x, frame.yMax + 14f);
+                nose.style.width = frame.width;
+            });
+            return d;
+        }
+
+        static void Place(Label l, float x, float centerY)
+        {
+            l.style.left = x;
+            l.style.top = centerY - 12f;
+        }
+
+        static Label DiagramLabel(VisualElement parent, string text, Color? color)
+        {
+            var l = Ui.Text(text, "le-hb__label", parent);
+            l.pickingMode = PickingMode.Ignore;
+            l.style.position = Position.Absolute;
+            l.style.height = 24f;
+            l.style.width = StyleKeyword.Auto;
+            l.style.marginLeft = 0f; l.style.marginTop = 0f; l.style.marginRight = 0f; l.style.marginBottom = 0f;
+            l.style.paddingLeft = 0f; l.style.paddingTop = 0f; l.style.paddingRight = 0f; l.style.paddingBottom = 0f;
+            l.style.unityTextAlign = TextAnchor.MiddleLeft;
+            if (color.HasValue) l.style.color = color.Value;
+            return l;
+        }
+
         static void DrawCoverageDiagram(Painter2D p, Rect r, PhotoRules rules)
         {
-            float h = r.height - 20f;
-            float w = h * 35f / 45f;
-            var frame = new Rect(30f, 10f, w, h);
+            var frame = DiagramFrame(r);
+            float h = frame.height;
+            var crop = new LegitEnough.Sim.Box(0f, frame.y, 1f, h);
             Draw.Rect(p, frame, Looks.Of(rules.Backdrop));
-            Draw.RoundRectStroke(p, frame, 2f, new Color(0.2f, 0.18f, 0.16f), 2f);
-            float mid = (rules.CoverageMin + rules.CoverageMax) * 0.5f;
-            float headH = h * mid;
-            float top = frame.y + h * 0.1f;
-            Draw.Ellipse(p, new Vector2(frame.center.x, top + headH * 0.5f), headH * 0.36f, headH * 0.5f, new Color(0.55f, 0.5f, 0.45f));
-            Draw.Rect(p, new Rect(frame.center.x - w * 0.4f, top + headH * 0.95f, w * 0.8f, frame.yMax - top - headH * 0.95f), new Color(0.45f, 0.42f, 0.4f));
-            var ink = new Color(0.65f, 0.15f, 0.12f);
-            float x = frame.xMax + 16f;
-            Draw.Line(p, new Vector2(x, top), new Vector2(x, top + h * rules.CoverageMax), ink, 2f);
-            Draw.Line(p, new Vector2(x - 8f, top), new Vector2(x + 8f, top), ink, 2f);
-            Draw.Line(p, new Vector2(x - 8f, top + h * rules.CoverageMin), new Vector2(x + 8f, top + h * rules.CoverageMin), ink, 2f);
-            Draw.Line(p, new Vector2(x - 8f, top + h * rules.CoverageMax), new Vector2(x + 8f, top + h * rules.CoverageMax), ink, 2f);
+
+            // A head with its crown (top of the hair) on the line and its chin mid-band.
+            float crown = Framing.GuideY(crop);
+            float chin = Framing.RulerY(crop, (rules.CoverageMin + rules.CoverageMax) * 0.5f);
+            float headH = chin - crown;
+            float cx = frame.center.x;
+            var body = new Color(0.45f, 0.42f, 0.4f);
+            Draw.Rect(p, new Rect(cx - frame.width * 0.4f, chin - headH * 0.06f, frame.width * 0.8f, frame.yMax - chin + headH * 0.06f), body);
+            Draw.Ellipse(p, new Vector2(cx, crown + headH * 0.5f), headH * 0.34f, headH * 0.5f, new Color(0.25f, 0.2f, 0.17f));
+            Draw.Ellipse(p, new Vector2(cx, crown + headH * 0.56f), headH * 0.3f, headH * 0.44f, new Color(0.55f, 0.5f, 0.45f));
+            Draw.RoundRectStroke(p, frame, 2f, DiagramInk, 2f);
+
+            // Guides: dashed TOP OF HEAD line (run on to the ruler) and the dashed NOSE line.
+            float rx = DiagramRulerX(frame);
+            Dashed(p, new Vector2(frame.x + 2f, crown), new Vector2(rx + 16f, crown), DiagramInk);
+            Dashed(p, new Vector2(cx, frame.y + 2f), new Vector2(cx, frame.yMax - 2f), DiagramInk);
+
+            // Ruler: zero on the line, a tick every 5%, longer every 10%; the chin band shaded.
+            float bandTop = Framing.RulerY(crop, rules.CoverageMin);
+            float bandBottom = Framing.RulerY(crop, rules.CoverageMax);
+            Draw.Rect(p, new Rect(rx - 6f, bandTop, 22f, bandBottom - bandTop), Draw.Alpha(DiagramRed, 0.35f));
+            Draw.Line(p, new Vector2(rx, crown), new Vector2(rx, frame.yMax), DiagramInk, 2f);
+            for (int i = 0; ; i++)
+            {
+                float y = Framing.RulerY(crop, i * 0.05f);
+                if (y > frame.yMax + 0.5f) break;
+                Draw.Line(p, new Vector2(rx, y), new Vector2(rx + (i % 2 == 0 ? 12f : 6f), y), DiagramInk, 2f);
+            }
+            Draw.Line(p, new Vector2(rx - 6f, bandTop), new Vector2(rx + 16f, bandTop), DiagramRed, 2f);
+            Draw.Line(p, new Vector2(rx - 6f, bandBottom), new Vector2(rx + 16f, bandBottom), DiagramRed, 2f);
+        }
+
+        static void Dashed(Painter2D p, Vector2 a, Vector2 b, Color c)
+        {
+            float len = Vector2.Distance(a, b);
+            if (len <= 0f) return;
+            var dir = (b - a) / len;
+            for (float t = 0f; t < len; t += 10f)
+                Draw.Line(p, a + dir * t, a + dir * Mathf.Min(len, t + 6f), c, 2f);
         }
 
         public override void Tick(float dt)

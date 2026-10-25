@@ -872,6 +872,10 @@ namespace LegitEnough.Game
             p.Rect(new Rect(x - w * 0.2f, neckTop, w * 0.4f, shoulderY - neckTop + 0.1f * h), neck);
             p.Rect(new Rect(x + w * 0.06f, neckTop, w * 0.14f, shoulderY - neckTop + 0.1f * h), Draw.Shade(neck, 0.86f));
             p.Ellipse(new Vector2(x, neckTop + 0.12f * h), w * 0.2f, h * 0.05f, Draw.Shade(neck, 0.82f));
+            // Shadow cast under the chin. The head is painted over its top half, so what shows is a
+            // dark crescent right below the jaw: the chin line reads against the neck, exactly where
+            // the head box (and the crop ruler) puts the chin.
+            p.Ellipse(new Vector2(x + yaw * 0.02f * w, headCenter.y + 0.5f * h), w * 0.18f, h * 0.06f, Draw.Shade(neck, 0.72f));
 
             ShoulderPath(p, x, shoulderY, h, sw, w, bottomY);
             p.fillColor = top;

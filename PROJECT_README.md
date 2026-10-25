@@ -202,6 +202,7 @@ Tools/SimTests/   offline test runner + compile checks + batch-mode Unity smoke 
 Tools/Build/      build-demo.ps1: the Windows player build on a throwaway copy
 Tools/Music/      Python: composes, renders and checks the background music (.ogg into Resources)
 Tools/ArtGen/     Node: the pixel fonts (fonts.js) and the visual-direction concept art (build.js)
+Tools/RoomPreview/ room-preview.ps1: renders the shop art at each tier, day and night, on a throwaway copy
 ```
 
 **The simulation never touches Unity.** `GameSession` is the whole game state. The
@@ -216,7 +217,8 @@ textures (`PixelImage`) at 4x on the 1920x1080 stage.
 - `RoomArt` draws the shop at 480x270, laid out on the same spots as `RoomLayout`. Equipment
   tiers swap the physical objects (CRT → monitors, taped inkjet → laser, bedsheet → studio) and
   the overall kit level dresses the room (stains and plastic chairs on Day 1, a plant and a
-  leather bench later).
+  leather bench later). The counter is seen from the desk side, stocked (paper, card drawers,
+  pigeonholes, the safe), and the desk has a cutting mat where the sheets and booklets go.
 - `ShopRenderer` bakes the room behind the customers and the counter/desk in front of them, and
   animates small layers on top (rain in the window, the door and bell, the clock, the screen,
   the printer, the cash LCD). One banded `LightMap` lights everything, people included; it
@@ -261,7 +263,7 @@ Every economy, timing and scoring number is in `Sim/Core/Balance.cs`. Country ru
 
 ```
 powershell -ExecutionPolicy Bypass -File Tools/SimTests/run.ps1            # sim tests: the full game (incl. a 20-day bot) and the demo (Demo_*)
-powershell -ExecutionPolicy Bypass -File Tools/SimTests/compile-game.ps1   # compile-check Sim+Game offline, then SmokeTest, StoreShots and the Editor scripts
+powershell -ExecutionPolicy Bypass -File Tools/SimTests/compile-game.ps1   # compile-check Sim+Game offline, then SmokeTest, StoreShots, RoomPreview and the Editor scripts
 powershell -ExecutionPolicy Bypass -File Tools/SimTests/unity-smoke.ps1 -Out <folder>   # batch Unity on a copy: plays the whole demo, saves screenshots
 ```
 

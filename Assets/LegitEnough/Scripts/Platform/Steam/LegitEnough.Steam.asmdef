@@ -1,0 +1,21 @@
+{
+    "name": "LegitEnough.Steam",
+    "rootNamespace": "LegitEnough.Steam",
+    "references": [
+        "LegitEnough.Game",
+        "LegitEnough.Sim",
+        "com.rlabrecque.steamworks.net"
+    ],
+    "includePlatforms": [
+        "Editor",
+        "WindowsStandalone64"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": false,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

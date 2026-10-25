@@ -473,10 +473,12 @@ namespace LegitEnough.Game
             var camera = _game.Find<CameraView>();
             if (camera != null)
             {
+                // The binder's rule, the same one the crop screen's ruler and readout show.
+                var binder = Framing.HandbookPhotoRules(S, order.CountryId);
                 var crop = _game.Find<CropView>();
-                if (crop != null) return CropStep(crop.Photo, crop.CurrentCrop, rules.Photo);
+                if (crop != null) return CropStep(crop.Photo, crop.CurrentCrop, binder);
                 var review = _game.Find<ReviewView>();
-                if (review != null) return ReviewStep(review.Photo, rules.Photo);
+                if (review != null) return ReviewStep(review.Photo, rules.Photo, binder);
             }
             if (kept == 0 && _game.Find<HandbookView>() != null) return RulesStep(order.CountryId, rules);
             if (camera == null)
@@ -513,8 +515,19 @@ namespace LegitEnough.Game
                 PortraitGeometry.FrameWorld(rig.Zoom, rig.PanX, rig.PanY));
             if (head.H < MinHeadInFrame && rig.Zoom < session.Camera.MaxZoom - 0.01f)
                 return Make("zoom", "Closer. ZOOM + till his head is big.", "cam-zoom-in");
-            if (head.Y < 0.03f || head.Bottom > 0.97f || head.X < 0.02f || head.Right > 0.98f)
-                return Make("aim", "His head's out of the frame. Drag the background to aim.", "cam-viewfinder");
+            // Aimed well enough that some crop can pass: head on the cross, crown and chin in the frame.
+            if (head.Y < Framing.ShotCrownMin)
+                return Make("aim", "The top of his head is out of the frame. Drag the background DOWN.", "cam-viewfinder");
+            if (head.Bottom > 0.97f)
+                return Make("aim", "His chin's out of the frame. Drag the background UP.", "cam-viewfinder");
+            string toCross = head.CenterX < 0.5f ? "RIGHT" : "LEFT";
+            if (head.X < 0.02f || head.Right > 0.98f || !Framing.ShotCroppable(head))
+                return Make("aim", $"He's off centre. Drag the background {toCross}: his face on the cross.", "cam-viewfinder");
+            // Roughly aimed, but at this zoom no crop of it would pass: nearer the cross, or a step back.
+            if (!Framing.ShotCroppable(head, pr, session.Camera.SensorHeightPx))
+                return Math.Abs(head.CenterX - 0.5f) > 0.03f
+                    ? Make("aim", $"Closer to the middle. Drag the background {toCross}: his face on the cross.", "cam-viewfinder")
+                    : Make("aim", "Too close to crop it right. ZOOM - once.", "cam-zoom-out");
             if (subj.Lid >= Balance.BlinkHalfThreshold) return Make("shoot", "Eyes! Wait for them...", "cam-shutter");
             return Make("shoot", "Now. SHUTTER. It fires a beat late, so watch his eyes.", "cam-shutter");
         }
@@ -526,11 +539,11 @@ namespace LegitEnough.Game
                 + (pr.GlassesAllowed ? "Glasses OK. " : "No glasses. ")
                 + (pr.HeadwearAllowed ? "Hats OK. " : "No hats. ")
                 + (pr.SmileAllowed ? "Smiles OK. " : "No smiling. ")
-                + $"Head fills {Range(pr)} of the photo. Got it? Press H.";
+                + $"Head size {Range(pr)}: top of hair to chin. Got it? Press H.";
             return Make("rules", text, TabTarget(countryId));
         }
 
-        Step ReviewStep(PhotoCapture photo, PhotoRules pr)
+        Step ReviewStep(PhotoCapture photo, PhotoRules pr, PhotoRules binder)
         {
             if (photo == null) return Make("review", "Look at it properly.");
             if (photo.EyesClosed || photo.EyesHalfClosed) return Make("review", "He blinked. RETAKE.", "review-retake");
@@ -540,43 +553,124 @@ namespace LegitEnough.Game
                 return Make("review", "Glasses in the shot. RETAKE.", "review-retake");
             if (!pr.ExpressionOk(photo.Expression)) return Make("review", "That face won't pass. RETAKE.", "review-retake");
             if (!photo.Pose.IsCenter) return Make("review", "Head's turned. RETAKE.", "review-retake");
-            if (photo.Crop.W >= 0.99f) return Make("review", "That's a keeper. CROP it to passport size first.", "review-crop");
-            if (!FramingOk(photo.HeadInFrame, photo.Crop, pr, out _)) return Make("crop", "Not quite on the ruler. CROP it again.", "review-crop");
-            return Make("keep", "That'll do. KEEP.", "review-keep");
+            if (ReviewView.IsUncropped(photo) && (binder == null || !Framing.Check(photo, binder).SizeOk))
+                return Make("review", "Good shot. Now CROP it - his head has to fill the photo.", "review-crop");
+            if (binder == null) return Make("keep", "No head size in your binder for this one. Your call. KEEP.", "review-keep");
+            var check = Framing.Check(photo, binder);
+            if (!check.FramingOk)
+            {
+                var again = Make("crop", Problem(check) + " CROP it again.", "review-crop");
+                if (CropView.FailedCrops(photo) >= GiveUpAfter)
+                {
+                    // The way out: a wrong crop costs a little, it doesn't stop the job.
+                    again.Target = "review-keep";
+                    again.Fallback = "review-crop";
+                    again.Aside = KeepAside;
+                }
+                return again;
+            }
+            var keep = Make("keep", "That'll do. KEEP.", "review-keep");
+            if (check.LowRes) keep.Aside = "Low resolution. Zoom in on the camera next time.";
+            return keep;
         }
 
-        Step CropStep(PhotoCapture photo, Box crop, PhotoRules pr)
+        /// <summary>
+        /// From this many wrong crops of one photo (DONE presses that left it wrong; BACK doesn't
+        /// count) the note says KEEP is allowed too.
+        /// </summary>
+        const int GiveUpAfter = 3;
+        const string KeepAside = "Can't get it? KEEP works too. It just costs you.";
+
+        Step CropStep(PhotoCapture photo, Box crop, PhotoRules binder)
         {
             if (photo == null) return Make("crop", "Drag a corner. Drag the frame.", "crop-frame");
-            return FramingOk(photo.HeadInFrame, crop, pr, out string why)
-                ? Make("crop", "On the ruler. Click DONE.", "crop-done")
-                : Make("crop", why, "crop-frame");
+            string aside = CropView.FailedCrops(photo) >= GiveUpAfter ? KeepAside : null;
+            if (binder == null)
+                return new Step { Slot = "crop", Text = "No head size in your binder for this country. Your guess. Then DONE.", Target = "crop-done", Aside = aside };
+            var check = Framing.Check(photo.HeadInFrame, crop, binder, photo.SensorHeightPx);
+            Step step;
+            if (check.FramingOk)
+            {
+                // Only say "in the band" when the ruler shows it.
+                step = Make("crop", check.ChinInBand ? "Chin in the band. DONE." : "Head size is right. DONE.", "crop-done");
+                aside = check.LowRes ? "Low resolution. Zoom in on the camera next time." : null;
+            }
+            else
+            {
+                var fix = Fix(check, crop, out string target, out int? arrow);
+                step = Make("crop", fix, target, "crop-frame");
+                step.Arrow = arrow;
+            }
+            step.Aside = aside;
+            return step;
         }
 
-        /// <summary>The same framing test the photo is scored with, told in plain words.</summary>
-        static bool FramingOk(Box head, Box crop, PhotoRules pr, out string why)
+        /// <summary>
+        /// What to do about a wrong crop, in the order the screen gives it: top of the head on the
+        /// dashed line, nose on the centre line, then size it. Sizing keeps the dashed lines still,
+        /// so a placed crown stays placed and the chin really does slide into the band. The arrow
+        /// goes to the frame for a move (pointing the way to drag it) and to a corner handle for a
+        /// resize.
+        /// </summary>
+        static string Fix(in FramingResult f, Box crop, out string target, out int? arrow)
         {
-            float coverage = head.H / crop.H;
-            if (coverage < pr.CoverageMin)
+            target = "crop-frame";
+            arrow = null;
+            // 1. Top of the head on the line, only when the screen's checklist says so: a crown that's
+            //    "close enough" goes straight to sizing, so R. and the checklist ask for the same move.
+            bool up = f.Top == FramingTop.CutOff || f.Top == FramingTop.TooClose || (f.Top == FramingTop.Ok && f.CrownReading < 0f);
+            if (!f.TopOk)
             {
-                why = $"Head's too small. Drag a corner in. Crown to chin: {Range(pr)} of the photo. Read the RULER.";
-                return false;
+                string dir = up ? "UP" : "DOWN";
+                arrow = up ? DemoArt.PointerUp : DemoArt.PointerDown;
+                return f.CrownCut
+                    ? $"You've cut off the top of his head. Drag the frame {dir}: top of his hair on the dashed line."
+                    : $"Drag the frame {dir}: top of his hair on the dashed line.";
             }
-            if (coverage > pr.CoverageMax)
+            // 2. Nose on the centre line.
+            if (!f.Centred)
             {
-                why = $"Too tight. Drag a corner out. Crown to chin: {Range(pr)}.";
-                return false;
+                bool left = f.Side == FramingSide.SlideLeft;
+                arrow = left ? DemoArt.PointerLeft : DemoArt.PointerRight;
+                return $"Slide the frame {(left ? "LEFT" : "RIGHT")}: nose on the centre line.";
             }
-            float top = (head.Y - crop.Y) / crop.H;
-            float bottom = (crop.Bottom - head.Bottom) / crop.H;
-            float dx = Math.Abs(head.CenterX - crop.CenterX) / crop.W;
-            if (top < PhotoEvaluator.TopMarginMin || top > PhotoEvaluator.TopMarginMax || bottom < -0.01f || dx > PhotoEvaluator.CenterTolerance)
+            // 3. Size it: the chin into the band. If the ruler already shows the chin in the band
+            //    (crown a little off the line), go by the number instead.
+            target = "crop-handle-br";
+            string pct = $"{CropWords.ShownCoverage(f)}%";
+            switch (f.Size)
             {
-                why = "Size is right. Now drag the frame: head in the middle, a little air on top.";
-                return false;
+                case FramingSize.TooSmall:
+                    return f.ChinInBand
+                        ? $"Head's {pct}, a touch too small. Drag a corner IN a little."
+                        : "Head's too small. Drag a corner IN till the chin sits in the red band.";
+                case FramingSize.TooLarge:
+                    return f.ChinInBand
+                        ? $"Head's {pct}, a touch too big. Drag a corner OUT a little."
+                        : "Too tight. Drag a corner OUT till the chin is back in the red band.";
             }
-            why = "";
-            return true;
+            if (f.ChinCut) return "Too tight. Drag a corner OUT till the chin is back in the red band.";
+            target = "crop-done";
+            return f.ChinInBand ? "Chin in the band. DONE." : "Head size is right. DONE.";
+        }
+
+        /// <summary>What's wrong with a crop, said on THE PHOTO (the same order as THE PHOTO's stamp).</summary>
+        static string Problem(in FramingResult f)
+        {
+            if (f.CrownCut) return "You cut off the top of his head.";
+            if (f.ChinCut) return "You cut off his chin.";
+            string range = $"{CropWords.Pct(f.RuleMin)}-{CropWords.Pct(f.RuleMax)}%";
+            switch (f.Size)
+            {
+                case FramingSize.TooSmall: return $"Head's too small: {CropWords.ShownCoverage(f)}%, the rule says {range}.";
+                case FramingSize.TooLarge: return $"Too tight: head {CropWords.ShownCoverage(f)}%, the rule says {range}.";
+            }
+            switch (f.Top)
+            {
+                case FramingTop.TooClose: return "His hair's too near the top. It goes on the dashed line.";
+                case FramingTop.TooFar: return "His head sits too low. Top of his hair goes on the dashed line.";
+            }
+            return $"He's off centre: slide the frame {(f.Side == FramingSide.SlideLeft ? "LEFT" : "RIGHT")}, nose on the centre line.";
         }
 
         static string Range(PhotoRules pr) => $"{Mathf.RoundToInt(pr.CoverageMin * 100f)}-{Mathf.RoundToInt(pr.CoverageMax * 100f)}%";
@@ -856,6 +950,9 @@ namespace LegitEnough.Game
             return step;
         }
 
+        /// <summary>The crop and photo screens' live check and rule tag (named by ReviewView / CropView).</summary>
+        static readonly string[] CropReading = { "crop-readout", "crop-rule-tag", "review-summary", "review-verdict" };
+
         /// <summary>What the note must not cover on the current screen, and where it'd rather sit.</summary>
         void Context(string slot)
         {
@@ -877,6 +974,12 @@ namespace LegitEnough.Game
                 case CropView _:
                     _keepClear.Add(new Rect(140f, 170f, 680f, 800f));  // the photo
                     _keepClear.Add(new Rect(140f, 36f, 1220f, 130f));  // the heading and how-to line
+                    // The crop readout and the rule's tag: what the note talks about must stay readable.
+                    foreach (var name in CropReading)
+                    {
+                        var at = Locate(name, out _, out _);
+                        if (at.HasValue) _keepClear.Add(at.Value);
+                    }
                     break;
                 case HandbookView _:
                     if (slot == "rules")
@@ -941,7 +1044,8 @@ namespace LegitEnough.Game
             _count.style.opacity = 1f - stamp;
             _note.EnableInClassList("le-coach__note--done", _stampT > StampSeconds - 0.25f);
 
-            string key = step.Slot + "|" + step.Target;
+            // A new arrow direction is a new step (a move from DOWN to LEFT re-places the arrow).
+            string key = step.Slot + "|" + step.Target + "|" + step.Arrow;
             Rect? avoid = null;
             if (target.HasValue)
             {

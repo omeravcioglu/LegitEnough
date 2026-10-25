@@ -480,18 +480,26 @@ Label {
 .le-crop__rect { border-width: 4px; border-color: var(--le-accent); }
 .le-crop__handle {
     position: absolute;
-    width: 24px;
-    height: 24px;
+    width: 32px;
+    height: 32px;
     background-color: var(--le-accent);
     border-width: 3px;
     border-color: #3a2a10;
 }
-.le-crop__handle--tl { left: -14px; top: -14px; }
-.le-crop__handle--tr { right: -14px; top: -14px; }
-.le-crop__handle--bl { left: -14px; bottom: -14px; }
-.le-crop__handle--br { right: -14px; bottom: -14px; }
+/* Handles sit fully inside the frame's corners (the grab zone reaches a little outside). */
+.le-crop__handle--tl { left: 0; top: 0; }
+.le-crop__handle--tr { right: 0; top: 0; }
+.le-crop__handle--bl { left: 0; bottom: 0; }
+.le-crop__handle--br { right: 0; bottom: 0; }
 .le-crop__ruler { }
-.le-crop__ruler-label { -unity-font-definition: resource("LegitEnough/Fonts/LegitStamp"); color: var(--le-accent); font-size: 24px; }
+.le-crop__ruler-label {
+    -unity-font-definition: resource("LegitEnough/Fonts/LegitStamp");
+    color: #2a241c;
+    font-size: 24px;
+    -unity-text-align: middle-right;
+    margin: 0;
+    padding: 0;
+}
 
 /* ---------------------------------------------------------------- computer (late-90s OS) */
 

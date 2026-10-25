@@ -1112,16 +1112,17 @@ namespace LegitEnoughCI
 
         IEnumerator CropTo(PhotoCapture photo)
         {
-            var area = G.Top?.Root.Q(className: "le-crop__area");
+            // CROP measures in its 600 x 800 image (inside the area's border).
+            var area = G.Top?.Root.Q(className: "le-crop__image");
             if (area == null) yield break;
             var target = TargetCrop(photo);
             var c = (Box)Field(G.Top, "_crop");
             const float cw = 600f, ch = 800f;
-            // Resize from the bottom-right corner (the top-left stays put).
-            // Grab just inside the corner: the frame's own edge is outside the crop area's bounds.
+            // Resize from the bottom-right corner, straight down/up: the frame zooms about the guide
+            // point (dashed TOP OF HEAD line x NOSE line), so the corner travels 88% of the change in
+            // height. Grab just inside the corner.
             var corner = area.LocalToWorld(new Vector2(c.Right * cw - 10f, c.Bottom * ch - 10f));
-            float wNew = PortraitGeometry.CropWidthFor(target.H);
-            var cornerTo = area.LocalToWorld(new Vector2((c.X + wNew) * cw - 10f, (c.Y + target.H) * ch - 10f));
+            var cornerTo = area.LocalToWorld(new Vector2(c.Right * cw - 10f, c.Bottom * ch - 10f + (target.H - c.H) * ch * (1f - Framing.GuideTop)));
             yield return Drag(corner, cornerTo, 0.6f);
             yield return Sec(0.2f);
             // Then slide it over the face.

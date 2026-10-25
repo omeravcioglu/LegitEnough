@@ -766,48 +766,8 @@ namespace LegitEnough.Game
             b.Clear();
             int d = st.Decor;
             Tripod(b, st);
-
-            // Counter (stage 690..770 → art 172..192).
-            Color32 top = d == 3 ? C("#3a2a20") : d == 2 ? C("#6a4e34") : C("#7a5a3b");
-            Color32 front = d == 3 ? C("#2e2119") : d == 2 ? C("#4e3a28") : C("#55402c");
-            b.Rect(0, 172, W, 5, top);
-            b.HLine(0, W - 1, 172, Pal.Mix(top, C("#ffffff"), 0.15f));
-            b.HLine(0, W - 1, 176, d == 3 ? C("#a88a4a") : M(top, 0.7f));
-            b.Rect(0, 177, W, 16, front);
-            for (int x = 6; x < W; x += 16) b.VLine(x, 178, 192, M(front, 0.82f));
-            if (d == 1)
-            {
-                b.Speck(0, 172, W, 5, M(top, 0.82f), 0.12f, 33);
-                b.Rect(206, 179, 44, 10, C("#d6cdb2"));
-                b.Text("NO REFUNDS", 208, 181, C("#2a211b"), PixelFont.Tiny);
-                b.Rect(205, 178, 3, 2, C("#c8c0a4"));
-                b.Rect(248, 178, 3, 2, C("#c8c0a4"));
-            }
-            else if (d == 3)
-            {
-                b.Rect(212, 180, 56, 8, C("#a88a4a"));
-                b.Text("NO REFUNDS", 220, 181, C("#3a2a14"), PixelFont.Tiny);
-            }
-            // Service bell.
-            b.Ellipse(256f, 170f, 3f, 2.5f, C("#c9a24a"));
-            b.HLine(253, 259, 172, C("#8a6a2a"));
-            b.Set(255, 168, C("#f0d88a"));
-
-            // Desk (stage 770.. → art 192..).
-            Color32 desk = d == 3 ? C("#4a3424") : C("#5a4430");
-            b.Rect(0, 193, W, 72, desk);
-            b.HLine(0, W - 1, 193, Pal.Mix(desk, C("#ffffff"), 0.12f));
-            b.Rect(0, 265, W, 5, M(desk, 0.62f));
-            b.HLine(0, W - 1, 265, M(desk, 0.75f));
-            if (d == 1)
-            {
-                b.Speck(0, 194, W, 70, M(desk, 0.9f), 0.12f, 21);
-                b.Ring(272f, 262f, 4f, 2f, M(desk, 0.8f));
-                b.Ring(196f, 258f, 4f, 2f, M(desk, 0.82f));
-            }
-            // Masking-tape labels for the paper piles.
-            Tape(b, 176, 195, "SHEETS");
-            Tape(b, 268, 195, "BOOKLETS");
+            Counter(b, st);
+            Desk(b, st);
 
             Computer(b, st);
             Binder(b, st);
@@ -823,6 +783,334 @@ namespace LegitEnough.Game
             if (d == 1) b.Set(414, 259, C("#8a3a2a"));
             b.Line(170, 262, 173, 255, C("#2a3a6a"));
             b.Line(172, 263, 175, 257, C("#a8342b"));
+        }
+
+        /// <summary>
+        /// The counter seen from the desk side: the ledge customers lean on (stage 690..706 → art
+        /// 172..176) and below it the inside of the counter (art 177..192), where the shop keeps
+        /// its stock: an open shelf, card drawers, a plain panel under the customer, pigeonholes
+        /// of blank forms, and a cubby with the extinguisher and the safe.
+        /// </summary>
+        static void Counter(PixelBuffer b, RoomState st)
+        {
+            int d = st.Decor;
+            Color32 white = C("#ffffff");
+
+            // Ledge: cheap laminate with an aluminium edge; dark wood and brass in a proper shop.
+            Color32 top = d == 3 ? C("#3a2a20") : d == 2 ? C("#a3a493") : C("#ad9e78");
+            Color32 trim = d == 3 ? C("#a88a4a") : C("#868b89");
+            b.Rect(0, 172, W, 3, top);
+            b.HLine(0, W - 1, 172, Pal.Mix(top, white, 0.2f));
+            b.HLine(0, W - 1, 175, Pal.Mix(trim, white, 0.35f));
+            b.HLine(0, W - 1, 176, trim);
+            if (d == 1)
+            {
+                b.Speck(0, 173, W, 2, M(top, 0.85f), 0.1f, 33);
+                foreach (int x in new[] { 37, 38, 140, 301, 302, 303, 396 })
+                {
+                    b.Set(x, 175, C("#5e4e3a"));
+                    b.Set(x, 176, C("#4a3d2c"));
+                }
+            }
+
+            // Inside: the ledge's shadow, sections between posts, the bottom rail.
+            Color32 face = d == 3 ? C("#2e2119") : d == 2 ? C("#5b4733") : C("#6b4f34");
+            Color32 frame = M(face, 0.72f);
+            Color32 hole = d == 3 ? C("#160f0b") : C("#21170f");
+            Color32 lip = Pal.Mix(face, white, 0.14f);
+            Color32 brass = d == 3 ? C("#d8b45a") : C("#b0903c");
+            b.Rect(0, 177, W, 16, face);
+            b.HLine(0, W - 1, 177, M(face, 0.42f));
+            b.HLine(0, W - 1, 191, M(face, 0.8f));
+            b.HLine(0, W - 1, 192, M(face, 0.6f));
+            if (d == 1) b.Speck(0, 178, W, 13, M(face, 0.9f), 0.1f, 12);
+            foreach (int x in new[] { 0, 104, 173, 304, 432, 477 })
+            {
+                b.Rect(x, 178, 3, 13, frame);
+                b.VLine(x, 178, 190, Pal.Mix(frame, white, 0.12f));
+            }
+
+            // Open shelf, over the computer.
+            b.Rect(3, 178, 101, 12, hole);
+            b.HLine(3, 103, 190, lip);
+            if (d == 3)
+            {
+                // Archive boxes, all alike.
+                for (int i = 0; i < 4; i++)
+                {
+                    int bx = 6 + i * 24;
+                    b.Rect(bx, 180, 22, 10, C("#3a4a3c"));
+                    b.HLine(bx, bx + 21, 180, C("#4e6050"));
+                    b.Rect(bx + 3, 183, 8, 3, C("#d8cfb2"));
+                    b.Rect(bx + 15, 184, 3, 1, C("#1c241d"));
+                }
+            }
+            else
+            {
+                // Reams of paper with their coloured bands, a box of photo paper, files standing up,
+                // loose forms and a tin of pens.
+                string[] bands = { "#4a6aa8", "#b8483a", "#4a6aa8" };
+                for (int i = 0; i < 3; i++)
+                {
+                    int ry = 187 - i * 3, rx = 7 + (i == 1 ? 1 : 0);
+                    b.Rect(rx, ry, 20, 3, C("#ddd4bc"));
+                    b.HLine(rx, rx + 19, ry, C("#efe8d6"));
+                    b.Rect(rx + 7, ry, 5, 3, C(bands[i]));
+                }
+                b.Rect(31, 180, 21, 10, C("#9c7a4e"));
+                b.HLine(31, 51, 180, C("#b8946a"));
+                b.VLine(41, 181, 189, C("#86683f"));
+                b.Rect(34, 183, 5, 3, C("#e6dfcc"));
+                string[] spines = { "#8a3a32", "#b8963a", "#6a6e70", "#3a5a8a", "#2a2a2c" };
+                for (int i = 0; i < 5; i++)
+                {
+                    int sx = 56 + i * 4, sh = i == 2 ? 9 : 11;
+                    b.Rect(sx, 190 - sh, 3, sh, C(spines[i]));
+                    b.Set(sx + 1, 193 - sh, C("#d8d0bc"));
+                }
+                for (int i = 0; i < 4; i++) b.HLine(79, 91 - i % 2, 186 + i, i % 2 == 0 ? C("#e8e0cc") : C("#c9bfa4"));
+                b.Rect(94, 184, 5, 6, C("#6a7a86"));
+                b.HLine(94, 98, 184, C("#8a9aa6"));
+                b.VLine(95, 182, 183, C("#a8342b"));
+                b.VLine(97, 181, 183, C("#2a3a6a"));
+            }
+
+            // Card drawers: a brass holder with a label card, and a pull. On Day 1 one is left open
+            // with a form sticking out, and one has lost its label.
+            b.Rect(107, 178, 66, 13, frame);
+            Color32 drawer = d == 3 ? C("#4a3424") : Pal.Mix(face, white, 0.08f);
+            for (int r = 0; r < 2; r++)
+                for (int c = 0; c < 4; c++)
+                {
+                    int dx = 108 + c * 16, dy = 178 + r * 7;
+                    bool ajar = d == 1 && r == 0 && c == 2;
+                    b.Rect(dx, dy, 15, 6, drawer);
+                    b.HLine(dx, dx + 14, dy, ajar ? hole : Pal.Mix(drawer, white, 0.15f));
+                    if (ajar) b.HLine(dx + 3, dx + 10, dy, C("#e8e0cc"));
+                    if (!(d == 1 && r == 1 && c == 0))
+                    {
+                        b.Rect(dx + 5, dy + 1, 5, 2, brass);
+                        b.Rect(dx + 6, dy + 1, 3, 1, C("#e8e0cc"));
+                    }
+                    b.Rect(dx + 6, dy + 4, 3, 1, C("#2a1f16"));
+                }
+
+            // The panel under the customer, the sign, and (until the shop takes cards, which is
+            // never) a no-cards sticker.
+            Color32 panel = d == 3 ? C("#33251b") : Pal.Mix(face, white, 0.05f);
+            b.Rect(176, 178, 128, 13, panel);
+            if (d == 3) b.Box(179, 179, 122, 11, C("#241a13"));
+            else
+                foreach (var (sx, sy) in new[] { (178, 179), (301, 179), (178, 189), (301, 189) })
+                    b.Set(sx, sy, M(panel, 0.6f));
+            if (d == 1)
+            {
+                b.Rect(206, 179, 44, 10, C("#d6cdb2"));
+                b.Text("NO REFUNDS", 208, 181, C("#2a211b"), PixelFont.Tiny);
+                b.Rect(205, 178, 3, 2, C("#c8c0a4"));
+                b.Rect(248, 178, 3, 2, C("#c8c0a4"));
+            }
+            else if (d == 3)
+            {
+                b.Rect(212, 180, 56, 8, C("#a88a4a"));
+                b.Text("NO REFUNDS", 220, 181, C("#3a2a14"), PixelFont.Tiny);
+            }
+            if (d < 3)
+            {
+                b.Rect(262, 180, 10, 7, C("#e6e2d6"));
+                b.Rect(264, 181, 6, 4, C("#3a5aa8"));
+                b.HLine(264, 269, 182, C("#e2cd48"));
+                b.Line(262, 186, 271, 180, C("#c83a2a"));
+            }
+
+            // Pigeonholes: blank forms, a rolled certificate, blank booklets, envelopes, photo strips.
+            b.Rect(307, 178, 125, 13, frame);
+            string[] forms = { "#e8e0cc", "#e2a4ac", "#a8c0e0" };
+            for (int i = 0; i < 9; i++)
+            {
+                int hx = 308 + i * 14;
+                b.Rect(hx, 178, 12, 11, hole);
+                b.HLine(hx, hx + 11, 189, lip);
+                b.HLine(hx + 4, hx + 7, 190, d == 3 ? brass : C("#d8cfb2"));
+                int kind = d == 3 ? 0 : i;
+                switch (kind)
+                {
+                    case 2:
+                        if (d == 1)
+                        {
+                            // Empty for a while.
+                            b.Line(hx, 181, hx + 3, 178, C("#5e5e58"));
+                            b.Set(hx + 1, 178, C("#5e5e58"));
+                            b.Set(hx, 179, C("#5e5e58"));
+                        }
+                        break;
+                    case 3:
+                        b.Rect(hx + 1, 185, 10, 3, C("#e8e0cc"));
+                        b.HLine(hx + 1, hx + 10, 185, C("#f6f1e2"));
+                        b.VLine(hx + 1, 185, 187, C("#c9bda2"));
+                        b.VLine(hx + 6, 185, 187, C("#a8342b"));
+                        break;
+                    case 4:
+                        string[] covers = { "#6e1c20", "#1f2c4f", "#24452f" };
+                        for (int k = 0; k < 3; k++)
+                        {
+                            b.Rect(hx + 1 + k * 3, 181, 3, 8, C(covers[k]));
+                            b.Set(hx + 2 + k * 3, 183, C("#c8a44a"));
+                        }
+                        break;
+                    case 5:
+                        for (int y = 183; y <= 188; y++) b.HLine(hx + 1, hx + 10, y, y % 2 == 0 ? C("#d8cfb2") : C("#c4b998"));
+                        b.Set(hx + 9, 183, C("#a8342b"));
+                        break;
+                    case 7:
+                        b.Rect(hx + 2, 180, 3, 9, C("#e8e4d8"));
+                        for (int k = 0; k < 3; k++)
+                        {
+                            b.Set(hx + 3, 181 + k * 3, C("#3a2a20"));
+                            b.Set(hx + 3, 182 + k * 3, C("#c8946a"));
+                        }
+                        b.Rect(hx + 6, 186, 5, 3, C("#88a0c8"));
+                        b.HLine(hx + 6, hx + 10, 186, C("#c8a088"));
+                        break;
+                    default:
+                        Color32 f = C(forms[d == 3 ? i % 3 : i == 1 ? 1 : i == 8 ? 2 : 0]);
+                        if (d < 3 && i == 6) f = C("#e2cd48");
+                        for (int y = 183 + (i * 5) % 3; y <= 188; y++) b.HLine(hx + 1, hx + 10 - y % 2, y, y % 2 == 0 ? f : M(f, 0.86f));
+                        break;
+                }
+            }
+
+            // The cubby with the fire extinguisher and the safe.
+            b.Rect(435, 178, 42, 12, hole);
+            b.HLine(435, 476, 190, lip);
+            b.Rect(439, 181, 5, 9, C("#b0322a"));
+            b.VLine(440, 182, 188, C("#d25a48"));
+            b.Rect(440, 179, 3, 2, C("#2a2a2c"));
+            b.HLine(441, 444, 179, C("#45454a"));
+            b.Rect(439, 184, 5, 2, C("#e8e0cc"));
+            b.VLine(438, 181, 187, C("#1e1e20"));
+            b.Rect(459, 180, 15, 10, C("#4a4f54"));
+            b.HLine(459, 473, 180, C("#6a7076"));
+            b.Box(461, 182, 11, 7, C("#363a3e"));
+            b.Box(464, 184, 3, 3, C("#b8bcbc"));
+            b.Set(469, 185, C("#b8bcbc"));
+
+            // On the ledge: a tip jar (optimistic), the service bell, a cactus under the desk lamp.
+            if (d < 3)
+            {
+                Color32 glass = C("#a8bcbc");
+                b.Rect(187, 167, 5, 6, Pal.A(glass, 0.3f));
+                b.VLine(186, 167, 173, glass);
+                b.VLine(192, 167, 173, glass);
+                b.HLine(186, 192, 173, M(glass, 0.75f));
+                b.HLine(185, 193, 166, C("#5a6464"));
+                b.Rect(187, 170, 5, 3, C("#6f8f5a"));
+                b.Set(188, 169, C("#86a872"));
+                b.Set(190, 169, C("#86a872"));
+                b.Set(191, 172, C("#c9a24a"));
+                b.VLine(187, 167, 168, Pal.Mix(glass, white, 0.6f));
+            }
+            b.Ellipse(256f, 170f, 3f, 2.5f, C("#c9a24a"));
+            b.HLine(253, 259, 172, C("#8a6a2a"));
+            b.Set(255, 168, C("#f0d88a"));
+            Color32 pot = d == 3 ? C("#d8d0bc") : d == 2 ? C("#a85a36") : C("#8c908e");
+            Color32 cactus = C("#4f7a3e");
+            b.Rect(431, 169, 7, 5, pot);
+            b.HLine(431, 437, 169, Pal.Mix(pot, white, 0.25f));
+            b.Rect(433, 162, 3, 7, cactus);
+            b.VLine(433, 163, 168, Pal.Mix(cactus, white, 0.2f));
+            b.Rect(436, 164, 2, 1, cactus);
+            b.Set(437, 163, cactus);
+            b.Set(435, 165, C("#c8d8b0"));
+            b.Set(433, 166, C("#c8d8b0"));
+            b.Set(434, 161, C("#e08aa0"));
+        }
+
+        /// <summary>
+        /// The desk (stage 770.. → art 193..): a cutting mat under the spots where ShopView lays the
+        /// client sheets and booklets, with a steel ruler, a craft knife and photo trimmings on it.
+        /// </summary>
+        static void Desk(PixelBuffer b, RoomState st)
+        {
+            int d = st.Decor;
+            Color32 white = C("#ffffff");
+            Color32 desk = d == 3 ? C("#4a3424") : C("#5a4430");
+            b.Rect(0, 193, W, 72, desk);
+            b.HLine(0, W - 1, 193, Pal.Mix(desk, white, 0.12f));
+            b.Rect(0, 265, W, 5, M(desk, 0.62f));
+            b.HLine(0, W - 1, 265, M(desk, 0.75f));
+            if (d == 1) b.Speck(0, 194, W, 70, M(desk, 0.9f), 0.12f, 21);
+
+            // Mat: 2-pixel border with ruler marks along the top and left, a grid (every third
+            // line stronger), a 45° guide.
+            const int mx = 174, my = 198, mw = 165, mh = 66;
+            b.HLine(mx + 1, mx + mw, my + mh, M(desk, 0.7f));
+            b.VLine(mx + mw, my + 1, my + mh - 1, M(desk, 0.7f));
+            Color32 mat = d == 3 ? C("#30353a") : C("#3a5257");
+            Color32 ink = C("#e8e0cc");
+            Color32 grid = Pal.Mix(mat, ink, 0.09f);
+            Color32 major = Pal.Mix(mat, ink, 0.2f);
+            Color32 tick = Pal.Mix(mat, ink, 0.6f);
+            b.Rect(mx, my, mw, mh, mat);
+            for (int x = mx + 4; x < mx + mw - 2; x += 8) b.VLine(x, my + 2, my + mh - 3, (x - mx - 4) % 24 == 0 ? major : grid);
+            for (int y = my + 4; y < my + mh - 2; y += 8) b.HLine(mx + 2, mx + mw - 3, y, (y - my - 4) % 24 == 0 ? major : grid);
+            b.Box(mx, my, mw, mh, M(mat, 0.75f));
+            b.Box(mx + 1, my + 1, mw - 2, mh - 2, M(mat, 0.75f));
+            for (int x = mx + 4; x < mx + mw - 2; x += 4) b.Set(x, my + 1, tick);
+            for (int x = mx + 4; x < mx + mw - 2; x += 8) b.Set(x, my, tick);
+            for (int y = my + 4; y < my + mh - 2; y += 4) b.Set(mx + 1, y, tick);
+            for (int i = 0; i < 40; i += 2) b.Set(mx + 3 + i, my + mh - 4 - i, major);
+            if (d == 1)
+            {
+                // Knife scars, a coffee ring, a corner that won't lie flat.
+                var r = new PixelRandom(17);
+                Color32 scar = Pal.Mix(mat, ink, 0.25f);
+                for (int i = 0; i < 7; i++)
+                {
+                    int sx = mx + 8 + r.Range(0, mw - 20), sy = my + 8 + r.Range(0, mh - 16);
+                    for (int k = 0; k < 4; k++) b.Set(sx + k, sy - k / 2, scar);
+                }
+                b.Ring(mx + mw - 16f, my + 14f, 4f, 2.5f, M(mat, 0.7f));
+                Color32 under = Pal.Mix(mat, white, 0.3f);
+                int cx = mx + mw - 1, cy = my + mh - 1;
+                b.Set(cx - 2, cy, under);
+                b.Set(cx - 1, cy, under);
+                b.Set(cx - 1, cy - 1, under);
+                b.Set(cx, cy - 1, under);
+                b.Set(cx, cy - 2, under);
+                b.Set(cx, cy, M(desk, 0.6f));
+            }
+
+            // Steel ruler and craft knife, with their shadows.
+            b.HLine(181, 292, 258, M(mat, 0.6f));
+            b.Rect(180, 255, 112, 3, C("#aeb3b2"));
+            b.HLine(180, 291, 255, C("#d6dbda"));
+            for (int x = 182; x < 290; x += 2) b.Set(x, 256, C("#7c8281"));
+            for (int x = 182; x < 290; x += 10) b.Set(x, 257, C("#7c8281"));
+            b.Line(301, 261, 310, 256, M(mat, 0.6f));
+            b.Line(300, 259, 309, 254, C("#d89a2a"));
+            b.Line(300, 260, 309, 255, C("#a8741e"));
+            b.Line(310, 253, 314, 251, C("#cfd4d4"));
+            b.Set(315, 250, C("#eef2f2"));
+            if (d < 3)
+            {
+                // Photos get cut to size here: trimmings, and one still waiting.
+                b.HLine(188, 192, 208, C("#e8e0cc"));
+                b.VLine(250, 241, 243, C("#e8e0cc"));
+                b.HLine(262, 264, 228, C("#d8cfb2"));
+                b.Rect(332, 232, 2, 6, C("#e8e4d8"));
+                b.Set(332, 233, C("#c8946a"));
+                b.Set(333, 236, C("#8a6a4a"));
+                b.Rect(316, 236, 7, 9, C("#efe9dc"));
+                b.Rect(317, 237, 5, 7, C("#c8ccc8"));
+                b.Rect(318, 238, 3, 2, C("#3a2a20"));
+                b.Rect(318, 240, 3, 2, C("#c8946a"));
+                b.Rect(317, 242, 5, 2, C("#4a5a7a"));
+            }
+
+            // Masking-tape labels for the paper piles.
+            Tape(b, 176, 195, "SHEETS");
+            Tape(b, 268, 195, "BOOKLETS");
         }
 
         static void Tape(PixelBuffer b, int x, int y, string text)

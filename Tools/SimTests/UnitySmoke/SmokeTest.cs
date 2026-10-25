@@ -8,6 +8,7 @@ using LegitEnough.Sim;
 using UnityEditor;
 using UnityEngine;
 using UnityEngine.UIElements;
+using Box = LegitEnough.Sim.Box;
 
 namespace LegitEnoughCI
 {
@@ -73,6 +74,8 @@ namespace LegitEnoughCI
         static int _samirOrder = -1;
         static int _wishlistOpens;
         static int _markFrame;
+        /// <summary>R.'s note said SHUTTER when the tutorial shot was taken.</summary>
+        static bool _coachSaidShutter;
         // Kenji (Japan) may walk in while another job is still on the bench: he's answered the
         // moment he asks, whatever step the script is on (see Watch).
         static string _kenjiShot;
@@ -107,7 +110,73 @@ namespace LegitEnoughCI
         static GameRoot G => GameRoot.Instance;
         static GameSession S => G.Session;
 
+        const string ArmedKey = "LegitEnoughCI.SmokeTest.armed";
+
+        /// <summary>
+        /// -executeMethod entry. Steamworks.NET's editor script writes steam_appid.txt and adds its
+        /// STEAMWORKS_NET define a moment after the editor loads; the define recompiles the scripts
+        /// and reloads the domain, which would kill a run already playing. So both are done here
+        /// first, and the run starts once the editor has settled (a reload before then re-arms it).
+        /// </summary>
         public static void Run()
+        {
+            PrepareSteam();
+            SessionState.SetBool(ArmedKey, true);
+            Boot.Arm();
+        }
+
+        static void PrepareSteam()
+        {
+            if (!AppDomain.CurrentDomain.GetAssemblies().Any(a => a.GetName().Name == "com.rlabrecque.steamworks.net")) return;
+            try
+            {
+                if (!File.Exists("steam_appid.txt")) File.WriteAllText("steam_appid.txt", "5394180");
+            }
+            catch (Exception e) { Debug.LogWarning("smoke: could not write steam_appid.txt: " + e.Message); }
+            var target = UnityEditor.Build.NamedBuildTarget.Standalone;
+            string defines = PlayerSettings.GetScriptingDefineSymbols(target);
+            if (!defines.Split(';').Contains("STEAMWORKS_NET"))
+                PlayerSettings.SetScriptingDefineSymbols(target, string.IsNullOrEmpty(defines) ? "STEAMWORKS_NET" : defines + ";STEAMWORKS_NET");
+        }
+
+        [InitializeOnLoad]
+        static class Boot
+        {
+            static double _stableSince = -1;
+            static bool _armed;
+
+            static Boot()
+            {
+                if (!SessionState.GetBool(ArmedKey, false)) return;
+                // A reload landed after the run was armed: start once things settle again.
+                if (EditorApplication.isPlaying) EditorApplication.isPlaying = false;
+                Arm();
+            }
+
+            public static void Arm()
+            {
+                if (_armed) return;
+                _armed = true;
+                EditorApplication.update += Wait;
+            }
+
+            static void Wait()
+            {
+                if (EditorApplication.isCompiling || EditorApplication.isUpdating || EditorApplication.isPlayingOrWillChangePlaymode)
+                {
+                    _stableSince = -1;
+                    return;
+                }
+                double now = EditorApplication.timeSinceStartup;
+                if (_stableSince < 0) { _stableSince = now; return; }
+                if (now - _stableSince < 6.0) return;
+                EditorApplication.update -= Wait;
+                SessionState.SetBool(ArmedKey, false);
+                Begin();
+            }
+        }
+
+        static void Begin()
         {
             _out = Environment.GetEnvironmentVariable("LE_SMOKE_OUT");
             if (string.IsNullOrEmpty(_out)) _out = Path.GetFullPath("SmokeOut");
@@ -982,6 +1051,364 @@ namespace LegitEnoughCI
             return false;
         }
 
+        // ------------------------------------------------------------------ THE PHOTO and CROP
+
+        /// <summary>
+        /// THE PHOTO and CROP the way a player works them, with real pointer drags on the frame:
+        /// THE PHOTO uncropped (the NOT CROPPED warning, CROP primary); CROP's opening frame
+        /// (centred, 26 px inside the image, never passing as it is); DONE on it (the summary and
+        /// R. say what's wrong); BACK and ESC keep the photo and its crop; ESC on THE PHOTO asks
+        /// first; RESET; a corner drag sizes it (the dashed lines stay put); the frame dragged too low
+        /// (TOP OF HEAD CUT OFF); then placed to pass, where the readout, THE PHOTO's summary and
+        /// the scorer agree; KEEP keeps it. A job's second pass (a retake) only sizes, places, keeps.
+        /// </summary>
+        static void CropSteps(string tag, Func<string> cid, bool tutorial)
+        {
+            Func<bool> again = () => _shotSuffix != "";
+            Box target = default;
+            Add($"{tag} photo uncropped", () =>
+            {
+                var rv = G.Top as ReviewView;
+                Check(rv != null && rv.Photo == _capture, "THE PHOTO shows the new shot");
+                if (rv == null) return;
+                Check(rv.Uncropped, "a new shot is uncropped");
+                Check(HasText(rv.Root, "ON THE PASSPORT (35 x 45)"), "THE PHOTO: the preview says ON THE PASSPORT (35 x 45)");
+                string sum = rv.Root.Q<Label>("review-summary")?.text ?? "";
+                Check(sum.StartsWith("NOT CROPPED.") && sum.Contains("CROP it."), $"uncropped: the NOT CROPPED warning, got \"{sum}\"");
+                Check(Primary("review-crop") && !Primary("review-keep"), "uncropped: CROP is the primary button, not KEEP");
+                Names("review-retake", "review-crop", "review-keep", "review-handbook");
+                var binder = Binder(cid());
+                Check(binder != null, $"the binder has {cid()}'s photo rule");
+                Check(binder != null && Framing.TryPassingCrop(_capture.HeadInFrame, binder, _capture.SensorHeightPx, out target),
+                    $"some crop of this shot passes (head {_capture.HeadInFrame}, zoom {_capture.Zoom:0.00})");
+                Note($"{tag} shot: head {_capture.HeadInFrame} zoom {_capture.Zoom:0.00} sensor {_capture.SensorHeightPx}; a passing crop {target}");
+                if (tutorial)
+                {
+                    if (_coachSaidShutter)
+                        Check(binder != null && Framing.ShotCroppable(_capture.HeadInFrame, binder, _capture.SensorHeightPx), "R. only said SHUTTER for a shot that can be cropped to pass");
+                    CoachCheck("review-crop", "Now CROP it", "THE PHOTO, uncropped");
+                }
+            }, null, Soon(() => !tutorial || CoachOn("review-crop")), 0.2f);
+
+            Add($"{tag} crop open", () =>
+            {
+                Submit("review-crop");
+                var cv = G.Top as CropView;
+                Check(cv != null && cv.Photo == _capture, "CROP opened on the shot");
+                if (cv == null) return;
+                var open = Framing.OpeningCrop(_capture.HeadInFrame, Binder(cid()));
+                var c = cv.CurrentCrop;
+                Check(Same(c, open) && Same(cv.OpeningCrop, open), $"CROP opens on the opening frame {open}, got {c}");
+                Check(Math.Abs(c.CenterX - 0.5f) * 600f < 0.5f && Math.Abs(c.CenterY - 0.5f) * 800f < 0.5f, $"the opening frame is centred, got {c}");
+                float inset = Math.Min(Math.Min(c.X * 600f, (1f - c.Right) * 600f), Math.Min(c.Y * 800f, (1f - c.Bottom) * 800f));
+                Check(inset >= 25.9f, $"the opening frame is at least 26 px inside the image, got {inset:0.0} px");
+                Check(!cv.Check.FramingOk, "the opening frame doesn't pass as it is");
+                Check(!Primary("crop-done"), "DONE isn't lit while the frame is wrong");
+                Check(cv.Check.Size == FramingSize.TooSmall || cv.Check.Size == FramingSize.TooLarge, "the opening frame is the wrong size, got " + cv.Check.Size);
+                Names("crop-frame", "crop-handle-tl", "crop-handle-tr", "crop-handle-bl", "crop-handle-br", "crop-readout", "crop-rule-tag",
+                    "crop-guides", "crop-reset", "crop-back", "crop-done");
+                NoteCrop("opening");
+            }, $"{tag}_crop_open");
+            AfterShot(() =>
+            {
+                var cv = G.Top as CropView;
+                if (cv == null) return;
+                var binder = Binder(cid());
+                string name = CropWords.NameOf(S, cid()).ToUpperInvariant();
+                string range = $"{Pct(binder.CoverageMin)}-{Pct(binder.CoverageMax)}%";
+                var tagEl = cv.Root.Q("crop-rule-tag");
+                Check(HasText(tagEl, $"{name} - HEAD {range}") && HasText(tagEl, "top of hair or hat to chin"), $"the pinned tag says \"{name} - HEAD {range}\" / \"top of hair or hat to chin\"");
+                Check(HasText(cv.Root, "TOP OF HEAD") && HasText(cv.Root, "NOSE") && HasText(cv.Root, "CHIN"), "the guides' tags: TOP OF HEAD, NOSE, CHIN");
+                string verdict = cv.Check.Size == FramingSize.TooSmall ? "too small" : "too big";
+                var size = Readout("HEAD SIZE");
+                Check(size != null && size.text.Contains($"{name} NEEDS {range} - {verdict}") && RowState(size) == "warn",
+                    $"the readout: \"HEAD SIZE ...  ·  {name} NEEDS {range} - {verdict}\" (amber), got \"{size?.text}\" ({RowState(size)})");
+                Check(Readout("FRAMING OK") == null, "no FRAMING OK on the opening frame");
+                if (tutorial) CoachFixCheck(cv, "CROP, the opening frame");
+            });
+
+            // DONE straight away: the frame as it opened goes on the passport, and THE PHOTO says why that's wrong.
+            Add($"{tag} crop done too soon", () =>
+            {
+                var open = (G.Top as CropView)?.CurrentCrop ?? default;
+                int failed = CropView.FailedCrops(_capture);
+                Submit("crop-done");
+                var rv = G.Top as ReviewView;
+                Check(rv != null && rv.Photo == _capture, "DONE goes back to THE PHOTO");
+                Check(Same(_capture.Crop, open), "DONE puts the frame as it is on the photo");
+                Check(CropView.FailedCrops(_capture) == failed + 1, $"a wrong DONE counts as a failed crop (got {CropView.FailedCrops(_capture)})");
+                Agree(_capture, cid(), "the opening frame");
+            }, $"{tag}_photo_crop_wrong", null, 0.35f, 40f, again);
+            AfterShot(() =>
+            {
+                var rv = G.Top as ReviewView;
+                if (rv == null) return;
+                var sum = rv.Root.Q<Label>("review-summary");
+                string text = sum?.text ?? "";
+                bool small = rv.Check.Size == FramingSize.TooSmall;
+                Check(text.StartsWith("Head ") && text.Contains(small ? ": too small" : ": too big"), $"the summary says the head is {(small ? "too small" : "too big")}, got \"{text}\"");
+                Check(sum != null && !sum.ClassListContains("le-review__summary--ok"), "a wrong crop's summary isn't green");
+                // The stamp says what's wrong, and CROP (not KEEP) is the lit button.
+                string stamp = CropWords.Verdict(rv.Check);
+                Check(HasText(rv.Root.Q("review-verdict"), stamp) && HasText(rv.Root.Q("review-verdict"), "CROP it again."), $"THE PHOTO's stamp says \"{stamp}\" / \"CROP it again.\"");
+                Check(Primary("review-crop") && !Primary("review-keep"), "a wrong crop: CROP is the primary button, not KEEP");
+                if (tutorial)
+                {
+                    string why = rv.Check.CrownCut ? "You cut off the top of his head." : small ? "Head's too small" : "Too tight";
+                    CoachCheck("review-crop", why, "THE PHOTO after a wrong crop");
+                    Check(CoachText().Contains("CROP it again.") && !CoachText().Contains("Not quite on the ruler"), "R. says why, then \"CROP it again.\", got " + CoachText());
+                }
+            });
+
+            // BACK (and ESC) on CROP: THE PHOTO again, the same shot with the crop it had. Nothing is thrown away.
+            Add($"{tag} crop back", () =>
+            {
+                var before = _capture.Crop;
+                Submit("review-crop");
+                var cv = G.Top as CropView;
+                Check(cv != null && Same(cv.CurrentCrop, before), "CROP reopens with the photo's own crop");
+                if (cv != null)
+                {
+                    CropDrag(Centre(cv.CurrentCrop), Centre(cv.CurrentCrop) + new Vector2(30f, 0f));
+                    Check(!Same(cv.CurrentCrop, before), $"a drag inside the frame moves it ({before} -> {cv.CurrentCrop})");
+                }
+                Submit("crop-back");
+                var rv = G.Top as ReviewView;
+                Check(rv != null && rv.Photo == _capture, "BACK returns to THE PHOTO with the same shot");
+                Check(Same(_capture.Crop, before), $"BACK keeps the crop the photo had ({before}, now {_capture.Crop})");
+                Check(S.ActivePhoto.Shots.Contains(_capture), "BACK throws nothing away");
+                Submit("review-crop");
+                Check(G.Top is CropView, "CROP again");
+                G.Top?.OnEscape();
+                Check(G.Top is ReviewView r2 && r2.Photo == _capture && Same(_capture.Crop, before), "ESC on CROP goes back to THE PHOTO, the crop kept");
+            }, $"{tag}_photo_after_back", null, 0.35f, 40f, again);
+            Add($"{tag} photo esc", () =>
+            {
+                G.Top?.OnEscape();
+                Check(G.Top is ConfirmView && HasText(G.Top.Root, "Throw this photo away?"), "ESC on THE PHOTO asks before throwing the shot away");
+            }, $"{tag}_photo_esc_asks", null, 0.35f, 40f, again);
+            Add($"{tag} photo esc cancel", () =>
+            {
+                Submit("confirm-cancel");
+                Check(G.Top is ReviewView rv && rv.Photo == _capture && S.ActivePhoto.Shots.Contains(_capture), "CANCEL: THE PHOTO again, the shot still there");
+            }, null, null, 0.35f, 40f, again);
+            Add($"{tag} crop reset", () =>
+            {
+                Submit("review-crop");
+                var cv = G.Top as CropView;
+                Check(cv != null, "CROP again");
+                if (cv == null) return;
+                CropDrag(Centre(cv.CurrentCrop), Centre(cv.CurrentCrop) + new Vector2(-20f, 14f));
+                Submit("crop-reset");
+                Check(Same(cv.CurrentCrop, cv.OpeningCrop), $"RESET goes back to the opening frame, got {cv.CurrentCrop}");
+            }, null, null, 0.35f, 40f, again);
+
+            // A bottom corner, dragged straight down or up: the frame zooms about the guide point (the
+            // dashed TOP OF HEAD line x the NOSE line), so the corner travels 88% of the change in height.
+            Add($"{tag} crop size", () =>
+            {
+                var cv = G.Top as CropView;
+                Check(cv != null, "CROP is up to size the frame");
+                if (cv == null) return;
+                var c0 = cv.CurrentCrop;
+                float g = (target.H - c0.H) * 800f * (1f - Framing.GuideTop);
+                var from = new Vector2(c0.Right * 600f - 12f, c0.Bottom * 800f - 12f);
+                CropDrag(from, from + new Vector2(0f, g));
+                var c = cv.CurrentCrop;
+                Check(Math.Abs(c.H - target.H) * 800f < 1f, $"a corner drag sizes the frame: {c.H * 800f:0.0} px high, wanted {target.H * 800f:0.0}");
+                var about = Framing.ResizeAboutGuide(c0, target.H);
+                Check(Math.Abs(c.X - about.X) * 600f < 1f && Math.Abs(c.Y - about.Y) * 800f < 1f, $"resizing is about the guide point ({c0} -> {c}, expected {about})");
+                bool slid = Math.Abs(Framing.GuideY(about) - Framing.GuideY(c0)) * 800f > 0.5f || Math.Abs(about.CenterX - c0.CenterX) * 600f > 0.5f;
+                if (!slid)
+                    Check(Math.Abs(Framing.GuideY(c) - Framing.GuideY(c0)) * 800f < 0.5f && Math.Abs(c.CenterX - c0.CenterX) * 600f < 0.5f,
+                        $"resizing keeps the dashed lines still ({c0} -> {c})");
+                Check(cv.Check.SizeOk, $"sized: head {cv.Check.Coverage:0.000} is in the band");
+                NoteCrop("sized");
+            }, $"{tag}_crop_sized");
+            AfterShot(() =>
+            {
+                var cv = G.Top as CropView;
+                if (cv == null) return;
+                var size = Readout("HEAD SIZE");
+                Check(size != null && RowState(size) == "ok" && !size.text.Contains("too"), $"sized: the HEAD SIZE row is green, got \"{size?.text}\" ({RowState(size)})");
+                if (tutorial && !cv.Check.FramingOk) CoachFixCheck(cv, "CROP, sized");
+            });
+
+            // Dragged too low: the frame's top edge below his crown.
+            Add($"{tag} crop too low", () =>
+            {
+                var cv = G.Top as CropView;
+                if (cv == null) { Check(false, "CROP is up"); return; }
+                var c = cv.CurrentCrop;
+                float dy = (_capture.HeadInFrame.Y + 0.04f * c.H - c.Y) * 800f;
+                CropDrag(Centre(c), Centre(c) + new Vector2(0f, dy));
+                Check(cv.Check.Top == FramingTop.CutOff && cv.Check.CrownCut, $"dragged too low: the top of the head is cut off ({cv.Check.Top}, top margin {cv.Check.TopMargin:0.000})");
+                NoteCrop("too low");
+            }, $"{tag}_crop_top_cut", null, 0.35f, 40f, again);
+            AfterShot(() =>
+            {
+                var top = Readout("TOP OF HEAD CUT OFF");
+                Check(top != null && RowState(top) == "bad", $"the readout shows TOP OF HEAD CUT OFF in red ({RowState(top)})");
+                Check(Readout("FRAMING OK") == null, "no FRAMING OK with the top of the head cut off");
+                if (tutorial) CoachCheck("crop-frame", "Drag the frame UP: top of his hair on the dashed line", "CROP, top of the head cut off");
+                Check(Readout("slide the frame UP") != null, "the cut-off row says which way: slide the frame UP");
+            });
+
+            // Dragged into place: crown on the dashed line, nose on the centre line.
+            Add($"{tag} crop place", () =>
+            {
+                var cv = G.Top as CropView;
+                if (cv == null) { Check(false, "CROP is up"); return; }
+                var c = cv.CurrentCrop;
+                var d = new Vector2((target.CenterX - c.CenterX) * 600f, (target.CenterY - c.CenterY) * 800f);
+                CropDrag(Centre(c), Centre(c) + d);
+                c = cv.CurrentCrop;
+                Check(Math.Abs(c.X - target.X) * 600f < 1f && Math.Abs(c.Y - target.Y) * 800f < 1f && Math.Abs(c.H - target.H) * 800f < 1f,
+                    $"dragged onto {target}, got {c}");
+                Check(cv.Check.FramingOk, $"placed: the framing passes ({cv.Check.Size}/{cv.Check.Top}/{cv.Check.Side})");
+                NoteCrop("placed");
+            }, $"{tag}_crop_pass");
+            AfterShot(() =>
+            {
+                var cv = G.Top as CropView;
+                if (cv == null) return;
+                var ok = Readout("FRAMING OK. DONE.");
+                Check(ok != null && RowState(ok) == "ok", "the readout says FRAMING OK. DONE. in green");
+                Check(Readout(cv.Check.CrownOnLine ? "TOP OF HEAD: on the line" : "TOP OF HEAD: close enough") != null && Readout("CENTRED") != null,
+                    "the readout: TOP OF HEAD on the line (or close enough, with how far), CENTRED");
+                Check(Primary("crop-done"), "DONE is lit once the frame is right");
+                if (tutorial) CoachCheck("crop-done", cv.Check.ChinInBand ? "Chin in the band. DONE." : "Head size is right. DONE.", "CROP, a passing frame");
+            });
+
+            Add($"{tag} crop done", () =>
+            {
+                var c = (G.Top as CropView)?.CurrentCrop ?? default;
+                Submit("crop-done");
+                var rv = G.Top as ReviewView;
+                Check(rv != null && rv.Photo == _capture && Same(_capture.Crop, c), "DONE: THE PHOTO with the new crop");
+                Agree(_capture, cid(), "the passing crop");
+                var real = new QualityReport();
+                PhotoEvaluator.AssessFraming(_capture, S.Country(cid()).Spec.Photo, real);
+                Check(real.Findings.Count == 0, $"the scorer (today's rule) finds nothing wrong with the framing: {Findings(real)}");
+            }, $"{tag}_photo_cropped");
+            AfterShot(() =>
+            {
+                var rv = G.Top as ReviewView;
+                if (rv == null) return;
+                var binder = Binder(cid());
+                string range = $"{Pct(binder.CoverageMin)}-{Pct(binder.CoverageMax)}%";
+                var sum = rv.Root.Q<Label>("review-summary");
+                string text = sum?.text ?? "";
+                Check(text.StartsWith("Head ") && text.Contains($"({CropWords.NameOf(S, cid())} {range})") && text.Contains("· centred · top of head OK"),
+                    $"the summary: \"Head NN% ({CropWords.NameOf(S, cid())} {range}) · centred · top of head OK\", got \"{text}\"");
+                Check(sum != null && sum.ClassListContains("le-review__summary--ok"), "a passing crop's summary is green");
+                Check(Primary("review-keep") && !Primary("review-crop"), "cropped: KEEP is the primary button");
+                Check(HasText(rv.Root.Q("review-verdict"), "FRAMING OK"), "THE PHOTO's stamp says FRAMING OK");
+                if (tutorial) CoachCheck("review-keep", "That'll do. KEEP.", "THE PHOTO, cropped right");
+            });
+            Add($"{tag} keep", () =>
+            {
+                int kept = S.Photos.ForCustomer(_capture.CustomerId).Count;
+                Submit("review-keep");
+                Check(G.Top is CameraView, "KEEP: back to the camera");
+                Check(S.Photos.ForCustomer(_capture.CustomerId).Count == kept + 1, "KEEP keeps the photo");
+                Note($"photo: {PhotoEvaluator.Score(_capture, S.Country(cid()).Spec.Photo)} coverage {_capture.Coverage:0.00}");
+            }, $"{tag}_camera_kept");
+        }
+
+        static PhotoRules Binder(string countryId) => Framing.HandbookPhotoRules(S, countryId);
+
+        /// <summary>
+        /// On CROP with a wrong frame, R. gives the fix in the screen's order: top of the head on the
+        /// dashed line (arrow on the frame), nose on the centre line, then size it (arrow on a corner).
+        /// </summary>
+        static void CoachFixCheck(CropView cv, string what)
+        {
+            var f = cv.Check;
+            bool up = f.Top == FramingTop.CutOff || f.Top == FramingTop.TooClose || (f.Top == FramingTop.Ok && f.CrownReading < 0f);
+            if (!f.TopOk)
+                CoachCheck("crop-frame", $"Drag the frame {(up ? "UP" : "DOWN")}: top of his hair on the dashed line.", what);
+            else if (!f.Centred)
+                CoachCheck("crop-frame", $"Slide the frame {(f.Side == FramingSide.SlideLeft ? "LEFT" : "RIGHT")}", what);
+            else if (f.Size == FramingSize.TooSmall)
+                CoachCheck("crop-handle-br", "Drag a corner IN", what);
+            else if (f.Size == FramingSize.TooLarge)
+                CoachCheck("crop-handle-br", "Drag a corner OUT", what);
+            else
+                CoachCheck("crop-done", "DONE.", what);
+        }
+
+        static int Pct(float fraction) => Mathf.RoundToInt(fraction * 100f);
+
+        static bool Same(Box a, Box b) =>
+            Math.Abs(a.X - b.X) < 1e-4f && Math.Abs(a.Y - b.Y) < 1e-4f && Math.Abs(a.W - b.W) < 1e-4f && Math.Abs(a.H - b.H) < 1e-4f;
+
+        static bool Primary(string name) => G.Stage.Q(name)?.ClassListContains("le-btn--primary") == true;
+
+        /// <summary>The middle of a crop, in CROP's 600 x 800 image box.</summary>
+        static Vector2 Centre(Box c) => new Vector2(c.CenterX * 600f, c.CenterY * 800f);
+
+        /// <summary>The readout line on CROP that's showing and says this, or null.</summary>
+        static Label Readout(string says)
+        {
+            Label found = null;
+            (G.Top as CropView)?.Root.Q("crop-readout")?.Query<Label>().ForEach(l =>
+            {
+                if (found == null && l.text != null && l.text.Contains(says) && Shown(l)) found = l;
+            });
+            return found;
+        }
+
+        /// <summary>A readout line's colour: ok (green), warn (amber), bad (red), unknown.</summary>
+        static string RowState(Label line)
+        {
+            var row = line?.parent;
+            if (row == null) return "-";
+            foreach (var s in new[] { "bad", "warn", "ok", "unknown" })
+                if (row.ClassListContains("le-crop-read__row--" + s)) return s;
+            return "none";
+        }
+
+        /// <summary>The shared framing check (what the screens and R. say) agrees with the scorer's framing findings.</summary>
+        static void Agree(PhotoCapture photo, string countryId, string what)
+        {
+            var binder = Binder(countryId);
+            if (binder == null) return;
+            var f = Framing.Check(photo, binder);
+            var rep = new QualityReport();
+            PhotoEvaluator.AssessFraming(photo, binder, rep);
+            Note($"{what}: check {(f.FramingOk ? "ok" : "wrong")} ({f.Size}/{f.Top}/{f.Side}, head {f.Coverage:0.000}), scorer {Findings(rep)}");
+            Check((rep.Findings.Count == 0) == f.FramingOk, $"{what}: the framing check ({(f.FramingOk ? "ok" : "wrong")}) agrees with the scorer ({Findings(rep)})");
+        }
+
+        static string Findings(QualityReport r) =>
+            r.Findings.Count == 0 ? "clean" : string.Join(", ", r.Findings.Select(x => x.Issue + (string.IsNullOrEmpty(x.Detail) ? "" : "(" + x.Detail + ")")));
+
+        static void NoteCrop(string what)
+        {
+            if (!(G.Top is CropView cv)) return;
+            var f = cv.Check;
+            Note($"crop {what}: {cv.CurrentCrop} head {f.Coverage:0.000} top {f.TopMargin:0.000} dx {f.Dx:0.000} {f.Size}/{f.Top}/{f.Side} cut {f.CrownCut}/{f.ChinCut} lowres {f.LowRes} ({f.CropSensorPx:0} px)");
+        }
+
+        /// <summary>A pointer event at a point of CROP's 600 x 800 image box, sent through the panel like a mouse.</summary>
+        static void CropPointer(EventType type, Vector2 imageLocal)
+        {
+            var img = (G.Top as CropView)?.Root.Q(className: "le-crop__image");
+            if (img == null) { Check(false, "CROP's image is up"); return; }
+            var ev = new Event { type = type, mousePosition = img.LocalToWorld(imageLocal), button = 0 };
+            EventBase e = type == EventType.MouseDown ? PointerDownEvent.GetPooled(ev)
+                : type == EventType.MouseDrag ? (EventBase)PointerMoveEvent.GetPooled(ev) : PointerUpEvent.GetPooled(ev);
+            using (e) G.Stage.panel.visualTree.SendEvent(e);
+        }
+
+        static void CropDrag(Vector2 from, Vector2 to)
+        {
+            CropPointer(EventType.MouseDown, from);
+            for (int i = 1; i <= 4; i++) CropPointer(EventType.MouseDrag, Vector2.Lerp(from, to, i / 4f));
+            CropPointer(EventType.MouseUp, to);
+        }
+
         // ------------------------------------------------------------------ a whole job
 
         /// <summary>
@@ -1074,7 +1501,16 @@ namespace LegitEnoughCI
                 if (sub.Expression != Expression.Neutral) sub.Command(PhotoCommand.NeutralFace);
                 sub.Command(PhotoCommand.LookAtCamera);
             }, $"{tag}_camera_posed", null, 2.2f);
-            Add($"{tag} shutter", () => (G.Top as CameraView)?.Shutter(), null, ReadyForShutter, 0.6f);
+            Add($"{tag} shutter", () =>
+            {
+                // R. only says SHUTTER for a shot some crop can pass (centred, crown in the frame).
+                if (tutorial)
+                {
+                    _coachSaidShutter = CoachText().Contains("SHUTTER");
+                    Note($"coach at the shutter: {CoachText()}");
+                }
+                (G.Top as CameraView)?.Shutter();
+            }, null, ReadyForShutter, 0.6f);
             Add($"{tag} review", () =>
             {
                 _capture = (G.Top as ReviewView)?.Photo ?? S.ActivePhoto.Shots[S.ActivePhoto.Shots.Count - 1];
@@ -1085,21 +1521,7 @@ namespace LegitEnoughCI
                     Goto($"{tag} shutter");
                 }
             }, $"{tag}_review", () => G.Top is ReviewView);
-            Add($"{tag} crop", () =>
-            {
-                G.Top.Close();
-                var rules = S.Country(cid).Spec.Photo;
-                var head = _capture.HeadInFrame;
-                float cropH = head.H / ((rules.CoverageMin + rules.CoverageMax) * 0.5f);
-                _capture.Crop = PortraitGeometry.MakeCrop(head.CenterX, head.Y - 0.1f * cropH + cropH * 0.5f, cropH);
-                G.Open(new CropView(G, _capture));
-            }, $"{tag}_crop");
-            Add($"{tag} keep", () =>
-            {
-                G.Top.Close();
-                S.KeepPhoto(_capture);
-                Note($"photo: {PhotoEvaluator.Score(_capture, S.Country(cid).Spec.Photo)} coverage {_capture.Coverage:0.00}");
-            }, $"{tag}_camera_kept");
+            CropSteps(tag, () => cid, tutorial);
             Add($"{tag} done photos", () =>
             {
                 // The kept row says where a better photo comes from (the photo corner; in a retake, the editor).

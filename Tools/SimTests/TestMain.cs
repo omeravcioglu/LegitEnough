@@ -59,6 +59,10 @@ namespace LegitEnough.SimTests
                 ("Ach_TutorialNothingEarly", AchievementTests.Ach_TutorialNothingEarly),
                 ("Ach_RuleChangeSameDayOnly", AchievementTests.Ach_RuleChangeSameDayOnly),
                 ("Ach_FullProbes", AchievementTests.Ach_FullProbes),
+                ("Crop_FramingAgreesWithScorer", CropTests.Crop_FramingAgreesWithScorer),
+                ("Crop_LiteralPlayerPasses", CropTests.Crop_LiteralPlayerPasses),
+                ("Crop_OpeningFrameAndControls", CropTests.Crop_OpeningFrameAndControls),
+                ("Crop_ResizeAboutGuide", CropTests.Crop_ResizeAboutGuide),
             };
 
             foreach (var (name, test) in tests)

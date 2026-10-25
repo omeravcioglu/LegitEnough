@@ -1,0 +1,99 @@
+/* CROP and THE PHOTO: guides, ruler tags, the pinned rule tag and the live readout.
+   (The base crop/review rules stay in Main.uss.) */
+
+.le-crop__help { font-size: 24px; }
+
+.le-crop__rect--hot { border-color: #ffd890; }
+.le-crop__handle--hot { background-color: #ffd890; border-color: #5a3810; }
+
+/* Small tags on the guides: dark plates so they read on any backdrop. */
+.le-crop__tag {
+    -unity-font-definition: resource("LegitEnough/Fonts/LegitStamp");
+    font-size: 24px;
+    color: #f4ecd6;
+    background-color: rgba(20, 16, 12, 0.86);
+    padding: 2px 8px 2px 8px;
+    margin: 0;
+    border-width: 2px;
+    border-color: #f4ecd6;
+    white-space: nowrap;
+}
+.le-crop__tag--chin { background-color: #b8302a; border-color: #ffd0c0; color: #ffffff; }
+.le-crop__tag--nose { }
+
+/* The rule, pinned to the board like a note. */
+.le-crop-rule {
+    background-color: var(--le-paper);
+    padding: 22px 20px 14px 20px;
+    border-bottom-width: 4px;
+    border-right-width: 4px;
+    border-color: #9a8a6a;
+}
+.le-crop-rule__pin {
+    position: absolute;
+    left: 50%;
+    top: 4px;
+    width: 16px;
+    height: 16px;
+    margin-left: -8px;
+    border-radius: 8px;
+    background-color: #c0392b;
+    border-width: 2px;
+    border-color: #6a1a10;
+}
+.le-crop-rule__title {
+    -unity-font-definition: resource("LegitEnough/Fonts/LegitStamp");
+    font-size: 36px;
+    color: var(--le-ink);
+    margin: 0;
+    padding: 0;
+}
+.le-crop-rule__note { font-size: 24px; color: var(--le-ink-soft); margin: 0; padding: 0; }
+
+/* The live readout: one row per check, a coloured chip and plain words. */
+.le-crop-read { }
+.le-crop-read__row { margin-bottom: 6px; align-items: center; }
+.le-crop-read__chip {
+    width: 18px;
+    height: 18px;
+    margin-right: 12px;
+    flex-shrink: 0;
+    background-color: #6a6052;
+    border-width: 2px;
+    border-color: #1a1510;
+}
+.le-crop-read__text { font-size: 24px; color: var(--le-text); margin: 0; padding: 0; flex-shrink: 1; }
+.le-crop-read__row--ok .le-crop-read__chip { background-color: var(--le-good); }
+.le-crop-read__row--ok .le-crop-read__text { color: #b8dc98; }
+.le-crop-read__row--warn .le-crop-read__chip { background-color: var(--le-accent); }
+.le-crop-read__row--warn .le-crop-read__text { color: #f0c870; }
+.le-crop-read__row--bad .le-crop-read__chip { background-color: var(--le-bad); }
+.le-crop-read__row--bad .le-crop-read__text { color: #ff8a80; }
+.le-crop-read__row--unknown .le-crop-read__text { color: var(--le-muted); }
+
+/* THE PHOTO: what the crop check says, in one line. */
+.le-review__summary { font-size: 24px; margin: 0; padding: 0; }
+.le-review__summary--ok { color: #b8dc98; }
+.le-review__summary--warn { color: #f0c870; }
+.le-review__summary--bad { color: #ff8a80; }
+
+/* THE PHOTO: the framing verdict, stamped beside the passport preview. */
+.le-review__verdict {
+    padding: 8px 16px 8px 16px;
+    border-width: 4px;
+    background-color: rgba(20, 16, 12, 0.9);
+}
+.le-review__verdict-title {
+    -unity-font-definition: resource("LegitEnough/Fonts/LegitStamp");
+    font-size: 36px;
+    margin: 0;
+    padding: 0;
+    white-space: nowrap;
+}
+.le-review__verdict-next { font-size: 24px; margin: 4px 0 0 0; padding: 0; color: #f4ecd6; }
+.le-review__verdict--bad { border-color: #d0453a; }
+.le-review__verdict--bad .le-review__verdict-title { color: #ff8a80; }
+.le-review__verdict--warn { border-color: #d89a30; }
+.le-review__verdict--warn .le-review__verdict-title { color: #f0c870; }
+.le-review__verdict--ok { border-color: #6a9a48; }
+.le-review__verdict--ok .le-review__verdict-title { color: #b8dc98; }
