@@ -103,7 +103,7 @@ builds skip the full import), runs batch-mode Unity there with
 scene list given explicitly: `Assets/Scenes/SampleScene.unity`) and writes the player to
 `Builds/LegitEnoughDemo/Legit Enough.exe` under the project root (outside Assets). The same
 build is on the Editor menu: **Legit Enough > Build Demo (Windows x64)**. Player settings:
-company McHunter Studio, product Legit Enough, version 0.9.0, no Unity splash (the game shows
+company McHunter Studio, product Legit Enough, version 0.9.1, no Unity splash (the game shows
 its own studio ident). Options: `-Out <folder>`, `-Work <folder>`, `-TimeoutMinutes <n>`.
 The exe's icon is the store icon: BuildDemo pulls every hand-drawn size (16-256 px) out of
 `Steam/store/client_icon.ico`, imports them into the build copy as point-filtered, uncompressed
