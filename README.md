@@ -8,6 +8,8 @@
 
 Nothing has to be perfect. Just legit enough.
 
+**[Coming soon on Steam](https://store.steampowered.com/app/5394180/Legit_Enough/)**: wishlist it there.
+
 | | |
 |---|---|
 | ![Samir walks into the shop](Steam/store/screenshots/01_samir_walks_in.png) | ![Posing a customer for the photo](Steam/store/screenshots/02_camera_posed.png) |
@@ -34,7 +36,7 @@ Nothing has to be perfect. Just legit enough.
   - **Day 2** is scripted: rule changes, four visitors (one of them a teaser for the full game) and a guided first visit to the computer's shop.
 - **36 achievements:** 15 progress, 10 skill, 4 story and 7 secret, 8 of them hidden. Twelve can be earned in the demo, and the demo banks them for the full game.
 - **Four original music cues** composed in code.
-- **The trailer** is also localized into Simplified Chinese, Turkish, Japanese and Korean: the same cut and music, with translated title cards. A Steam store page draft and store art exist too.
+- **The trailer** is also localized into Simplified Chinese, Turkish, Japanese and Korean: the same cut and music, with translated title cards. The [Steam store page](https://store.steampowered.com/app/5394180/Legit_Enough/) is live as **Coming soon**, with its store art.
 - **Not built yet:** visas, campaign milestones and endings, saving and loading, and more story arcs.
 
 ## Tech stack
