@@ -10,33 +10,43 @@ using UnityEngine;
 namespace LegitEnough.EditorTools
 {
     /// <summary>
-    /// The player build: Windows x64, the one scene (GameBootstrap builds everything else at
-    /// runtime). It only ever builds the DEMO: it refuses when GameRoot.DemoBuild is false in
+    /// The player build: Windows x64 (default) or macOS (Universal: Apple silicon + Intel), the one
+    /// scene (GameBootstrap builds everything else at runtime). It only ever builds the DEMO: it refuses when GameRoot.DemoBuild is false in
     /// source (play the full game in the Editor with Legit Enough > Play Full Game in Editor).
     /// The exe gets the store's app icon: the hand-drawn sizes in Steam/store/client_icon.ico are
     /// imported for the build (point filtered, uncompressed) and set as the Standalone icons, then
     /// the project's own icon settings are put back.
     /// Batch use (Tools/Build/build-demo.ps1 runs it on a throwaway copy of the project):
     ///   Unity -batchmode -projectPath COPY -executeMethod LegitEnough.EditorTools.BuildDemo.Run
-    /// The output path comes from LE_BUILD_OUT (the .exe path); without it, Builds/LegitEnoughDemo
-    /// under the project. The icon file comes from LE_BUILD_ICON; without it,
-    /// Steam/store/client_icon.ico under the project. Also on the menu: Legit Enough / Build Demo (Windows x64).
+    /// The output path comes from LE_BUILD_OUT (the .exe path, or the .app path for macOS); without it,
+    /// Builds/LegitEnoughDemo (Windows) or Builds/LegitEnoughDemoMac (macOS) under the project.
+    /// LE_BUILD_TARGET=mac builds the macOS player (Tools/Build/build-demo-mac.ps1); anything else, Windows.
+    /// The icon file comes from LE_BUILD_ICON; without it, Steam/store/client_icon.ico under the project.
+    /// Also on the menu: Legit Enough / Build Demo (Windows x64) and Build Demo (macOS).
     /// </summary>
     public static class BuildDemo
     {
         // Listed explicitly: the build never depends on what EditorBuildSettings happens to hold.
         static readonly string[] Scenes = { "Assets/Scenes/SampleScene.unity" };
         const string ExeName = "Legit Enough.exe";
+        const string AppName = "Legit Enough.app";
+        /// <summary>The macOS bundle id while building (the project's own value is put back afterwards).</summary>
+        const string MacBundleId = "com.mchunterstudio.legitenough";
         /// <summary>Where the icon sizes are imported for the build (removed again afterwards).</summary>
         const string IconDir = "Assets/LegitEnoughBuildIcons";
 
         [MenuItem("Legit Enough/Build Demo (Windows x64)")]
-        static void BuildFromMenu()
+        static void BuildFromMenu() => BuildFromMenu(false);
+
+        [MenuItem("Legit Enough/Build Demo (macOS)")]
+        static void BuildMacFromMenu() => BuildFromMenu(true);
+
+        static void BuildFromMenu(bool mac)
         {
             string text;
             try
             {
-                text = Summary(Build(DefaultPath()));
+                text = Summary(Build(DefaultPath(mac), mac));
             }
             catch (Exception e)
             {
@@ -52,9 +62,10 @@ namespace LegitEnough.EditorTools
             int code = 1;
             try
             {
+                bool mac = string.Equals(Environment.GetEnvironmentVariable("LE_BUILD_TARGET"), "mac", StringComparison.OrdinalIgnoreCase);
                 string path = Environment.GetEnvironmentVariable("LE_BUILD_OUT");
-                if (string.IsNullOrEmpty(path)) path = DefaultPath();
-                var report = Build(path);
+                if (string.IsNullOrEmpty(path)) path = DefaultPath(mac);
+                var report = Build(path, mac);
                 Debug.Log("LEGIT ENOUGH BUILD: " + Summary(report));
                 if (report.summary.result == BuildResult.Succeeded) code = 0;
             }
@@ -67,9 +78,11 @@ namespace LegitEnough.EditorTools
 
         static string ProjectRoot => Path.GetDirectoryName(Application.dataPath) ?? ".";
 
-        static string DefaultPath() => Path.Combine(ProjectRoot, "Builds", "LegitEnoughDemo", ExeName);
+        static string DefaultPath(bool mac) => mac
+            ? Path.Combine(ProjectRoot, "Builds", "LegitEnoughDemoMac", AppName)
+            : Path.Combine(ProjectRoot, "Builds", "LegitEnoughDemo", ExeName);
 
-        static BuildReport Build(string exePath)
+        static BuildReport Build(string exePath, bool mac)
         {
             // The shipping build is the demo. A DemoBuild left false in source would ship the full
             // game under the demo's name, so stop here instead.
@@ -82,32 +95,58 @@ namespace LegitEnough.EditorTools
             Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(exePath)) ?? ".");
             foreach (var scene in Scenes)
                 if (!File.Exists(scene)) throw new FileNotFoundException("Build scene missing: " + scene);
-            if (EditorUserBuildSettings.activeBuildTarget != BuildTarget.StandaloneWindows64)
-                EditorUserBuildSettings.SwitchActiveBuildTarget(BuildTargetGroup.Standalone, BuildTarget.StandaloneWindows64);
+            var target = mac ? BuildTarget.StandaloneOSX : BuildTarget.StandaloneWindows64;
+            if (mac && !BuildPipeline.IsBuildTargetSupported(BuildTargetGroup.Standalone, target))
+                throw new BuildFailedException("macOS Build Support (Mono) isn't installed for this Unity version (Unity Hub > Installs > Add modules).");
+            if (EditorUserBuildSettings.activeBuildTarget != target)
+                EditorUserBuildSettings.SwitchActiveBuildTarget(BuildTargetGroup.Standalone, target);
+            if (mac) SetMacUniversal();
 
             var keepIcons = StandaloneIcons.Get();
             var keepDefault = PlayerSettings.GetIcons(NamedBuildTarget.Unknown, IconKind.Any);
+            var keepBundleId = PlayerSettings.GetApplicationIdentifier(NamedBuildTarget.Standalone);
             try
             {
                 SetAppIcons(ImportIcons());
+                if (mac) PlayerSettings.SetApplicationIdentifier(NamedBuildTarget.Standalone, MacBundleId);
                 var options = new BuildPlayerOptions
                 {
                     scenes = Scenes,
                     locationPathName = exePath,
-                    target = BuildTarget.StandaloneWindows64,
+                    target = target,
                     targetGroup = BuildTargetGroup.Standalone,
                     options = BuildOptions.None,
                 };
-                Debug.Log($"LEGIT ENOUGH BUILD: {PlayerSettings.productName} {PlayerSettings.bundleVersion} ({PlayerSettings.companyName}), demo -> {exePath}");
+                Debug.Log($"LEGIT ENOUGH BUILD: {PlayerSettings.productName} {PlayerSettings.bundleVersion} ({PlayerSettings.companyName}), demo, {target} -> {exePath}");
                 return BuildPipeline.BuildPlayer(options);
             }
             finally
             {
-                // The icons belong to this build only: the project's settings and Assets stay as they were.
+                // The icons and bundle id belong to this build only: the project's settings and Assets stay as they were.
                 if (keepIcons != null) StandaloneIcons.Set(keepIcons);
                 PlayerSettings.SetIcons(NamedBuildTarget.Unknown, keepDefault, IconKind.Any);
+                PlayerSettings.SetApplicationIdentifier(NamedBuildTarget.Standalone, keepBundleId);
                 if (AssetDatabase.IsValidFolder(IconDir)) AssetDatabase.DeleteAsset(IconDir);
             }
+        }
+
+        /// <summary>
+        /// One app for both kinds of Mac (Apple silicon and Intel). The setting lives in
+        /// UnityEditor.OSXStandalone.UserBuildSettings, which only exists when the macOS module is
+        /// installed, so it's reached by reflection and this file still compiles without it.
+        /// </summary>
+        static void SetMacUniversal()
+        {
+            foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
+            {
+                var type = asm.GetType("UnityEditor.OSXStandalone.UserBuildSettings");
+                var prop = type?.GetProperty("architecture", BindingFlags.Static | BindingFlags.Public);
+                if (prop == null) continue;
+                prop.SetValue(null, Enum.Parse(prop.PropertyType, "x64ARM64"));
+                Debug.Log("LEGIT ENOUGH BUILD: macOS architecture " + prop.GetValue(null));
+                return;
+            }
+            Debug.LogWarning("LEGIT ENOUGH BUILD: couldn't set the macOS architecture; Unity's default is used.");
         }
 
         // ------------------------------------------------------------------ app icon
