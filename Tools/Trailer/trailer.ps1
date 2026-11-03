@@ -9,6 +9,7 @@ param(
     [Parameter(Mandatory = $true)][string]$Out,
     [string]$UnityExe = "C:\Program Files\Unity\Hub\Editor\6000.0.85f1\Editor\Unity.exe",
     [string]$Only = "",
+    [string]$Script = "",
     [int]$TimeoutMinutes = 75
 )
 $ErrorActionPreference = "Stop"
@@ -46,6 +47,7 @@ $ffmpeg = (Get-Command ffmpeg -ErrorAction Stop).Source
 $env:LE_TRAILER_OUT = $capture
 $env:LE_FFMPEG = $ffmpeg
 $env:LE_TRAILER_ONLY = $Only
+$env:LE_TRAILER_SCRIPT = $Script
 $log = Join-Path $Out "unity.log"
 $unityArgs = @("-batchmode", "-projectPath", "`"$ci`"", "-executeMethod", "LegitEnoughCI.TrailerRun.Run", "-logFile", "`"$log`"")
 $proc = Start-Process -FilePath $UnityExe -ArgumentList $unityArgs -PassThru

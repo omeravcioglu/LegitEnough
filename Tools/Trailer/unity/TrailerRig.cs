@@ -34,6 +34,8 @@ namespace LegitEnoughCI
         public static string Out;
         public static string Ffmpeg = "ffmpeg";
         public static string Only;
+        /// <summary>"day2" or "day2jobs": the demo's Day 2 visitors (Day2Script) instead of the trailer session.</summary>
+        public static string ScriptName;
         public static Action<int> Exit;
 
         static GameRoot G => GameRoot.Instance;
@@ -87,7 +89,7 @@ namespace LegitEnoughCI
             File.WriteAllText(_log, "trailer capture " + DateTime.Now + "\n");
             Application.logMessageReceived += OnLog;
             Sfx.Hook = OnSfx;
-            _stack.Add(Script());
+            _stack.Add(ScriptName == "day2" ? Day2Script() : ScriptName == "day2jobs" ? Day2Script(jobs: true) : Script());
         }
 
         void OnDestroy()
@@ -105,6 +107,7 @@ namespace LegitEnoughCI
                 // The render texture now holds the previous frame: that frame belongs to the take.
                 if (_take != null && _frame > _takeStart) Capture();
                 Clean();
+                KeepPatient();
                 Step();
                 TickCursor();
                 if (_frame > 60 * 60 * 40) Fail("global timeout");
@@ -918,9 +921,9 @@ namespace LegitEnoughCI
             yield return NightOpen(title);
             yield return SamirArrives();
             yield return PhotoSession();
-            yield return MakeDocument();
+            yield return MakeDocument(Samir);
             yield return PrintAndBind();
-            yield return HandOver();
+            yield return HandOver(Samir);
             // A capture of just the first customer (LE_TRAILER_ONLY lists no later take) stops here.
             if (!Wants("report", "day100card", "news", "tier1", "tier2", "tier3", "dusk", "night_busy", "power", "camera_t3", "os_t3")) yield break;
             yield return ToDay100();
@@ -932,6 +935,239 @@ namespace LegitEnoughCI
             yield return OsTier3();
             yield return Frames(2);
         }
+
+        // ============================================================ Day 2: the demo's scripted visitors
+
+        bool _keepPatient;
+
+        static Visit VisitOf(int customerId) => S.Visits.Find(v => v.Customer.Id == customerId);
+
+        /// <summary>Nobody walks out while the next visitor is being filmed.</summary>
+        void KeepPatient()
+        {
+            if (!_keepPatient || G == null || G.Session == null) return;
+            foreach (var v in S.Visits) v.Patience = v.PatienceMax;
+        }
+
+        static ulong PickDay2Seed()
+        {
+            for (ulong s = 20081007; s < 20081007 + 50000; s++)
+                if (ShopMood.WeatherFor(s, 2) == Weather.Rain) return s;
+            return 20081007;
+        }
+
+        /// <summary>Every scripted arrival waits until <see cref="BringIn"/> calls it.</summary>
+        static void HoldArrivals()
+        {
+            foreach (var a in new List<ScheduledArrival>(S.Director.Upcoming))
+                if (a.Kind == ArrivalKind.Story) S.Director.Reschedule(a, new GameTime(S.Day, 15f * 60f));
+        }
+
+        static void BringIn(int customerId)
+        {
+            foreach (var a in new List<ScheduledArrival>(S.Director.Upcoming))
+                if (a.CustomerId == customerId) S.Director.Reschedule(a, S.Now.AddMinutes(0.2));
+        }
+
+        /// <summary>
+        /// The demo's Day 2 (demo rules, no coach), its four visitors one at a time: Elif (Turkey) and Viktor
+        /// (the rush job, France) are taken on and photographed; Kenji (Japan, full game only) and Anja
+        /// (Germany, no handbook yet) hear no. Takes: day2card, open2, elif, elif_photo, kenji, viktor,
+        /// viktor_photo, anja, busy.
+        /// </summary>
+        /// <param name="jobs">Two jobs start to finish instead ("day2jobs"): Elif's Turkish passport (cropped, a
+        /// printer jam, paid) and Viktor's rush job shot on last year's French background, which he spots at the
+        /// counter; Kenji and Anja still hear no. Takes: open2, elif, elif_photo, elif_doc, elif_print, elif_hand,
+        /// kenji, viktor, viktor_photo, viktor_doc, viktor_print, viktor_hand, anja.</param>
+        IEnumerator Day2Script(bool jobs = false)
+        {
+            yield return Until(() => G != null && G.Session != null && G.Stage != null && G.Top is TitleView, 180f, "boot");
+            SetupCapture();
+            Time.captureDeltaTime = 1f / 60f;
+            SaveBuffer(UiArt.Logo(true), "logo_dark");
+            SaveBuffer(UiArt.Logo(false), "logo_light");
+            SaveBuffer(UiArt.Mark(), "mark");
+            SaveBuffer(UiArt.Emblem(), "emblem");
+            ulong seed = PickDay2Seed();
+            GameRoot.DemoBuild = true;
+            G.NewGame(seed);
+            S.Rules.Tutorial = false;
+            DropArrivals(true);
+            _keepPatient = true;
+            Note($"seed {seed}: day 2 {ShopMood.WeatherFor(seed, 2)}");
+            yield return Frames(3);
+            // Day 1 closes before it opens: straight to Day 2.
+            if (!S.CloseShop()) Fail("CloseShop on day 1: " + (S.CanCloseShop(out var why) ? "?" : why));
+            yield return Until(() => G.Top is DayReportView, 10f, "day 1 report");
+            yield return Frames(2);
+            G.Top.Close();
+            yield return Frames(2);
+            S.StartNextDay();
+            yield return Until(() => G.Top is DayStartView, 10f, "day 2 card");
+            yield return Sec(0.6f);
+            Rec("day2card");
+            yield return Sec(3f);
+            StopRec();
+            G.Top.Close();
+            yield return Sec(0.2f);
+
+            S.DebugAdvanceMinutes(Mathf.Max(0f, Balance.OpenMinute - S.Clock.Minute));
+            yield return Sec(0.3f);
+            _pos = new Vector2(1180f, 1010f);
+            _cursorOn = true;
+            Rec("open2");
+            yield return Sec(0.6f);
+            yield return Click(new Vector2(762f, 276f), () => S.Phase == DayPhase.Open, () => S.OpenShop(), "sign");
+            HoldArrivals();
+            yield return MoveTo(new Vector2(1260f, 900f), 0.6f);
+            yield return Sec(1.6f);
+            StopRec();
+
+            if (jobs)
+            {
+                yield return Visitor(DemoCast.ElifId, "elif", true);
+                var elif = VisitOf(DemoCast.ElifId);
+                yield return QuickPhoto(elif, "elif_photo", crop: true);
+                yield return MakeDocument(elif, "elif_doc");
+                yield return PrintAndBind("elif_print");
+                yield return HandOver(elif, "elif_hand");
+                yield return Visitor(DemoCast.KenjiId, "kenji", false);
+                yield return Visitor(DemoCast.ViktorId, "viktor", true);
+                var viktor = VisitOf(DemoCast.ViktorId);
+                yield return QuickPhoto(viktor, "viktor_photo", crop: true, wrongBackdrop: true);
+                yield return MakeDocument(viktor, "viktor_doc");
+                yield return PrintAndBind("viktor_print", jam: false);
+                yield return HandOver(viktor, "viktor_hand", complaint: true);
+                yield return Visitor(DemoCast.AnjaId, "anja", false);
+                yield break;
+            }
+            yield return Visitor(DemoCast.ElifId, "elif", true);
+            yield return QuickPhoto(VisitOf(DemoCast.ElifId), "elif_photo");
+            yield return Visitor(DemoCast.KenjiId, "kenji", false);
+            yield return Visitor(DemoCast.ViktorId, "viktor", true);
+            yield return QuickPhoto(VisitOf(DemoCast.ViktorId), "viktor_photo");
+            yield return Visitor(DemoCast.AnjaId, "anja", false);
+
+            // Two passports to make, both clients on the bench.
+            _cursorOn = false;
+            yield return Sec(0.5f);
+            Rec("busy");
+            yield return Sec(6f);
+            StopRec();
+            yield return Frames(2);
+        }
+
+        /// <summary>One visitor from the door to a decision: yes (and onto the photo stool) or no (and out).</summary>
+        IEnumerator Visitor(int id, string take, bool accept)
+        {
+            _cursorOn = true;
+            _pos = new Vector2(1260f, 900f);
+            BringIn(id);
+            Rec(take);
+            yield return Until(() => VisitOf(id) != null, 30f, take + " arrives");
+            var v = VisitOf(id);
+            yield return Until(() => v.Phase == VisitPhase.Choosing && v.Choices.Count > 0, 120f, take + " offer");
+            yield return Sec(1.4f);
+            if (accept)
+            {
+                if (v.Choices.Exists(c => c.Id == GameSession.ChoiceIds.Accept)) yield return Choose(v, GameSession.ChoiceIds.Accept);
+                else Fail(take + ": no Accept choice");
+                yield return Until(() => v.Phase == VisitPhase.Choosing && v.Choices.Exists(c => c.Id == GameSession.ChoiceIds.TakePhoto), 90f, take + " photo choice");
+                yield return Sec(0.9f);
+                yield return Choose(v, GameSession.ChoiceIds.TakePhoto);
+                yield return Until(() => v.Phase == VisitPhase.PhotoSitting && !v.Moving, 60f, take + " seated");
+                yield return Sec(0.6f);
+            }
+            else
+            {
+                yield return Choose(v, GameSession.ChoiceIds.Decline);
+                yield return Until(() => VisitOf(id) == null || VisitOf(id).Phase == VisitPhase.Gone, 60f, take + " leaves", false);
+                yield return Sec(0.6f);
+            }
+            StopRec();
+        }
+
+        /// <summary>A plain portrait: the right backdrop, framed, eyes open, kept. crop: cropped to the rules first;
+        /// wrongBackdrop: the other background, as if the player missed this morning's rule change.</summary>
+        IEnumerator QuickPhoto(Visit v, string take, bool crop = false, bool wrongBackdrop = false)
+        {
+            if (v == null)
+            {
+                Fail("no visitor for " + take);
+                yield break;
+            }
+            Rec(take);
+            yield return Click(new Vector2(1530f, 560f), () => G.Top is CameraView, () =>
+            {
+                if (S.BeginPhotoSession(v.Id) != null) G.Open(new CameraView(G, v));
+            }, "tripod");
+            yield return Until(() => G.Top is CameraView, 5f, "camera view");
+            var ps = S.ActivePhoto;
+            var sub = ps.Subject;
+            var spec = S.Country(v.Order.CountryId).Spec;
+            yield return Sec(0.7f);
+            var backdrop = !wrongBackdrop ? spec.Photo.Backdrop : spec.Photo.Backdrop == Backdrop.White ? Backdrop.LightGray : Backdrop.White;
+            if (ps.Rig.Backdrop != backdrop)
+            {
+                var want = backdrop;
+                yield return ClickBtn(Labels.Of(want), () => ps.Rig.SwappingBackdrop || ps.Rig.Backdrop == want, () => ps.PullBackdrop(want));
+                yield return Until(() => !ps.Rig.SwappingBackdrop, 12f, "backdrop swap", false);
+                yield return Sec(0.3f);
+            }
+            if (sub.HasGlasses && !spec.Photo.GlassesAllowed)
+            {
+                yield return Click(GlassesScreen(), () => !sub.HasGlasses, () => sub.Command(PhotoCommand.RemoveGlasses), "glasses");
+                yield return Sec(0.5f);
+            }
+            if (sub.HatOn && sub.Customer.Look.Hat != HatStyle.None && !spec.Photo.HeadwearAllowed)
+            {
+                yield return ClickBtn("HAT OFF");
+                yield return Sec(0.5f);
+            }
+            yield return FrameFace(2f);
+            yield return Sec(0.2f);
+            yield return ClickBtn("HOLD STILL");
+            yield return GetReady();
+            yield return Shutter(false);
+            yield return Sec(1.4f);
+            var shot = ps.Shots[ps.Shots.Count - 1];
+            Note($"{take}: lid {shot.Lid:0.00} blur {shot.Blurred} {shot.Expression}");
+            if (crop)
+            {
+                yield return ClickBtn("CROP", () => G.Top is CropView, () =>
+                {
+                    G.Top?.Close();
+                    G.Open(new CropView(G, shot));
+                });
+                yield return Sec(0.5f);
+                yield return CropTo(shot);
+                yield return Sec(0.4f);
+                yield return ClickBtn("DONE", () => G.Top is ReviewView, () =>
+                {
+                    SetPhotoCrop(shot);
+                    G.Top?.Close();
+                    G.Open(new ReviewView(G, shot));
+                });
+                yield return Sec(0.8f);
+            }
+            yield return ClickBtn("KEEP", () => G.Top is CameraView, () =>
+            {
+                S.KeepPhoto(shot);
+                G.Top?.Close();
+            });
+            yield return Sec(0.6f);
+            yield return ClickBtn("DONE - THANK YOU", () => !(G.Top is CameraView), () =>
+            {
+                S.FinishPhotoSitting(v.Id);
+                if (G.Top is CameraView) G.Top.Close();
+            });
+            yield return Until(() => v.Phase == VisitPhase.Waiting && !v.Moving, 30f, take + ": back on the bench");
+            yield return Sec(0.5f);
+            StopRec();
+        }
+
+        /// <summary>The order the editor is filling in (RowClick's fallback reopens it).</summary>
+        int _orderId;
 
         static bool Wants(params string[] takes) =>
             string.IsNullOrEmpty(Only) || Array.Exists(takes, t => Array.IndexOf(Only.Split(','), t) >= 0);
@@ -1143,12 +1379,13 @@ namespace LegitEnoughCI
             }
         }
 
-        IEnumerator MakeDocument()
+        IEnumerator MakeDocument(Visit v, string take = "editor")
         {
-            Rec("editor");
+            Rec(take);
             yield return Click(new Vector2(230f, 900f), () => G.Find<ComputerView>() != null, () => G.OpenComputer(), "crt");
             yield return Sec(0.7f);
-            var order = Samir.Order;
+            var order = v.Order;
+            _orderId = order.Id;
             var pc = G.Find<ComputerView>();
             var nav = FindNav("OFFICIAL-ISH 98");
             yield return ClickEl(nav, () => G.Stage.Q(className: "le-os-form") != null, () => pc.OpenEditor(order.Id), "editor icon");
@@ -1167,7 +1404,7 @@ namespace LegitEnoughCI
             yield return RowClick("COVER", Labels.Of(spec.Passport.Cover), () => draft.Cover == spec.Passport.Cover, () => draft.Cover = spec.Passport.Cover);
             yield return RowClick("PAGES", spec.Passport.Pages.ToString(CultureInfo.InvariantCulture), () => draft.Pages == spec.Passport.Pages, () => draft.Pages = spec.Passport.Pages);
 
-            var who = Samir.Customer.Identity;
+            var who = v.Customer.Identity;
             foreach (var f in spec.Passport.PersonalFields)
             {
                 string value = DocumentEvaluator.Expected(f, who, spec.Passport.DateFormat);
@@ -1197,7 +1434,7 @@ namespace LegitEnoughCI
                 photo.GetFirstAncestorOfType<ScrollView>()?.ScrollTo(photo);
                 yield return Frames(2);
             }
-            var kept = S.Photos.ForCustomer(Samir.Customer.Id);
+            var kept = S.Photos.ForCustomer(v.Customer.Id);
             yield return ClickEl(photo, () => draft.PhotoId.HasValue, () =>
             {
                 if (kept.Count > 0) draft.PhotoId = kept[kept.Count - 1].Id;
@@ -1219,7 +1456,7 @@ namespace LegitEnoughCI
             {
                 Note($"FALLBACK (no row button) {row}/{text}");
                 set();
-                pc?.OpenEditor(Samir.Order.Id);
+                pc?.OpenEditor(_orderId);
                 yield break;
             }
             b.GetFirstAncestorOfType<ScrollView>()?.ScrollTo(b);
@@ -1228,7 +1465,7 @@ namespace LegitEnoughCI
             yield return Click(Center(b), done, () =>
             {
                 set();
-                pc?.OpenEditor(Samir.Order.Id);
+                pc?.OpenEditor(_orderId);
             }, $"{row}/{text}");
             yield return Frames(3);
         }
@@ -1252,15 +1489,15 @@ namespace LegitEnoughCI
             }
         }
 
-        IEnumerator PrintAndBind()
+        IEnumerator PrintAndBind(string take = "print", bool jam = true)
         {
             _toasts = true;
-            Rec("print");
+            Rec(take);
             var close = G.Stage.Q<Button>(className: "le-os-close");
             yield return ClickEl(close, () => G.Find<ComputerView>() == null, () => G.Find<ComputerView>()?.Close(), "close computer");
             yield return MoveTo(new Vector2(1540f, 720f), 0.5f);
             yield return Until(() => S.Printer.Printing != null || S.Printer.Tray.Count > 0, 15f, "printing");
-            if (S.Printer.Printing != null && !S.Printer.Jammed)
+            if (jam && S.Printer.Printing != null && !S.Printer.Jammed)
             {
                 SetField(S.Printer, "_jamAt", Mathf.Max(S.Printer.Progress + 0.1f, 0.45f));
                 yield return Until(() => S.Printer.Jammed, 60f, "jam");
@@ -1290,27 +1527,42 @@ namespace LegitEnoughCI
             _toasts = false;
         }
 
-        IEnumerator HandOver()
+        /// <summary>The passport to the client, then their cash. complaint: they find a fault instead, and get "trust me".</summary>
+        IEnumerator HandOver(Visit v, string take = "handover", bool complaint = false)
         {
-            Rec("handover");
+            Rec(take);
             var booklet = G.Stage.Q(className: "le-booklet");
-            var fig = FigureOf(Samir);
+            var fig = FigureOf(v);
             var to = fig != null ? fig.HeadStage + new Vector2(0f, fig.HeadSizeStage * 1.2f) : new Vector2(300f, 520f);
             if (booklet != null) yield return Drag(Center(booklet), to, 0.8f, 0.2f);
             yield return Frames(8);
             if (S.DeskDocuments.Count > 0)
             {
                 Note("FALLBACK hand over");
-                S.GiveDocument(Samir.Id, S.DeskDocuments[0].Id);
+                S.GiveDocument(v.Id, S.DeskDocuments[0].Id);
             }
             yield return MoveTo(new Vector2(1300f, 880f), 0.6f);
+            if (complaint)
+            {
+                yield return Until(() => v.HasComplaint && v.Phase == VisitPhase.Choosing && v.Choices.Exists(c => c.Id == GameSession.ChoiceIds.TrustMe), 120f, take + ": the complaint");
+                yield return Sec(1.6f);
+                yield return Choose(v, GameSession.ChoiceIds.TrustMe);
+                yield return Until(() => S.CounterCash.Count > 0 || v.Leaving || v.Phase == VisitPhase.Gone, 40f, take + ": after trust me", false);
+                if (S.CounterCash.Count == 0)
+                {
+                    yield return Until(() => !S.Visits.Contains(v) || v.Phase == VisitPhase.Gone, 40f, take + ": leaves", false);
+                    yield return Sec(0.6f);
+                    StopRec();
+                    yield break;
+                }
+            }
             yield return Until(() => S.CounterCash.Count > 0, 120f, "cash on the counter");
             yield return Sec(1f);
             var cash = G.Stage.Q(className: "le-cash");
             int pile = S.CounterCash[0].Id;
             yield return ClickEl(cash, () => S.CounterCash.Count == 0, () => S.CollectCash(pile), "cash");
             yield return MoveTo(new Vector2(1400f, 940f), 0.5f);
-            yield return Until(() => S.Visits.Count == 0, 60f, "samir leaves", false);
+            yield return Until(() => !S.Visits.Contains(v) || v.Phase == VisitPhase.Gone, 60f, take + ": leaves", false);
             yield return Sec(0.8f);
             StopRec();
         }

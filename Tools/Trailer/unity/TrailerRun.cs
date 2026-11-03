@@ -21,6 +21,7 @@ namespace LegitEnoughCI
             var ffmpeg = Environment.GetEnvironmentVariable("LE_FFMPEG");
             if (!string.IsNullOrEmpty(ffmpeg)) TrailerRig.Ffmpeg = ffmpeg;
             TrailerRig.Only = Environment.GetEnvironmentVariable("LE_TRAILER_ONLY");
+            TrailerRig.ScriptName = Environment.GetEnvironmentVariable("LE_TRAILER_SCRIPT");
             Directory.CreateDirectory(TrailerRig.Out);
             TrailerRig.Exit = code => EditorApplication.Exit(code);
             // The trailer films the full game: no demo session, not even the one made at boot.
