@@ -34,9 +34,14 @@ Nothing has to be perfect. Just legit enough.
 - **A demo is built from the same code.** It runs about 15 minutes:
   - **Day 1** is a coached tutorial, with sticky notes and a pointer walking you through Samir's passport.
   - **Day 2** is scripted: rule changes, four visitors (one of them a teaser for the full game) and a guided first visit to the computer's shop.
+  - It has Windows and macOS builds. The Mac build is Universal (Apple silicon and Intel), with scripts that notarize it and upload both platforms to Steam from a Mac.
 - **36 achievements:** 15 progress, 10 skill, 4 story and 7 secret, 8 of them hidden. Twelve can be earned in the demo, and the demo banks them for the full game.
 - **Four original music cues** composed in code.
 - **The trailer** is also localized into Simplified Chinese, Turkish, Japanese and Korean: the same cut and music, with translated title cards. The [Steam store page](https://store.steampowered.com/app/5394180/Legit_Enough/) is live as **Coming soon**, with its store art.
+- **Social cuts for the demo launch:**
+  - **Day 1:** a 20-second short of the first customer, start to finish, vertical (Reels, Shorts, TikTok) and horizontal;
+  - an earlier hype cut of the same length;
+  - a version of the main trailer that ends on "FREE DEMO OUT NOW ON STEAM".
 - **Not built yet:** visas, campaign milestones and endings, saving and loading, and more story arcs.
 
 ## Tech stack
@@ -45,6 +50,7 @@ Nothing has to be perfect. Just legit enough.
 |---|---|
 | Engine | **Unity 6** (6000.0.85f1), 2D |
 | Screens | One 1920×1080 stage, always shown whole and centered on a screen pixel: 1080p and 4K are exact, while 21:9, 16:10, 4:3 and the Steam Deck get plain bars |
+| Builds | Scripts build the Windows and macOS demos, the Mac one as a Universal app ready for Apple's notarization. The Steam upload runs through SteamCMD, which can also run in Docker. |
 | Editions | One codebase builds both the demo and the full game. The demo build refuses to run unless the source is set to the demo, so the full game can never ship by accident. |
 | Simulation | `LegitEnough.Sim`: **pure C# with no UnityEngine references**. `GameSession` is the whole game state, and the presentation calls `Tick(dt)`, issues commands and drains events. |
 | Art | A **software pixel renderer**, with everything drawn in code at 480×270 and shown at 4× through point-filtered textures. One banded light map lights the room and the people, following the clock, the weather and power cuts. |
@@ -53,7 +59,7 @@ Nothing has to be perfect. Just legit enough.
 | Audio | Sound effects synthesized in code. The music is **four original cues composed in Python** (upright bass, brushes, Rhodes, vibraphone), and a script checks the renders for loudness, peaks and seamless loops. It streams in-game as Vorbis. |
 | Achievements | One catalog drives everything: a read-only tracker on the simulation, the stores (local for the demo, Steam for the full game), the unlock banners, and the badges and Steam icons, which are drawn in code |
 | Testing | An offline test runner with 42 simulation tests (the full game, including a 20-day bot playthrough, and the demo), offline compile checks of the Unity layer, and a batch-mode Unity smoke test with 306 checks |
-| Trailer | A Python pipeline: 60 fps takes recorded from the game, cut on a 100 BPM beat grid, with a synthesized score. Every sound the game made during a take is re-synthesized on the exact frame it happened. A `--lang` switch renders the localized versions in 1080p60 and 2160p60. |
+| Trailer | A Python pipeline: 60 fps takes recorded from the game, cut on a 100 BPM beat grid, with a synthesized score. Every sound the game made during a take is re-synthesized on the exact frame it happened. A `--lang` switch renders the localized versions in 1080p60 and 2160p60. The 20-second social cuts reuse the same takes at 120 BPM, in vertical and horizontal versions. |
 
 ## What I built
 
@@ -66,7 +72,7 @@ All of it. The game code is **`Assets/LegitEnough/Scripts/`**: 95 C# scripts, ab
 | Photo scoring, document quality, negotiation, orders, the ledger, standing, inbox and outcomes, news, equipment | `Sim/Documents/`, `Sim/Business/`, `Sim/Jobs/`, `Sim/Core/` (every number in `Balance.cs`) |
 | The presentation: boot, the shop, the photo station, the computer, paper handling, days, the tutorial coach, music, UI | `Game/` (44 scripts) |
 | The pixel renderer: room, props, lights, fonts, logo, flags, icons | `Game/Pixel/` (`PixelBuffer`, `PixelPainter`, `RoomArt`, `ShopRenderer`, `FigurePainter`) |
-| Tests, art, music and trailer tools | `Tools/SimTests/`, `Tools/ArtGen/`, `Tools/Music/`, `Tools/Trailer/` |
+| Tests, art, music and trailer tools; builds and the Steam upload | `Tools/SimTests/`, `Tools/ArtGen/`, `Tools/Music/`, `Tools/Trailer/`, `Tools/Build/` |
 
 ### Code highlights
 
@@ -94,6 +100,6 @@ None in the game: the art, the two fonts, the UI and the sound are all generated
 
 ## About this repository
 
-This public repository is a **showcase**. It contains the documentation and the **154 source files I wrote** for this project. The complete Unity project, with the store-page material and the trailer, is kept in a private repository.
+This public repository is a **showcase**. It contains the documentation and the **156 source files I wrote** for this project. The complete Unity project, with the store-page material and the trailer, is kept in a private repository.
 
 Copyright © Omer Avcioglu (McHunter Studio). **All rights reserved.** Viewing only; see [LICENSE](LICENSE).
