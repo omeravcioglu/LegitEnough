@@ -126,6 +126,7 @@ CARDS_MAIN = [
     dict(key="just", text="JUST...", at=113.0, until=115.85, style="big"),
     dict(key="wishlist", text="WISHLIST ON STEAM", at=120.0, until=128.0, style="end"),
 ]
+DEMO_END = "FREE DEMO OUT NOW ON STEAM"   # --demo: the end card once the demo is out
 
 MUSIC_MAIN = [
     dict(kind="intro", i=0),                                   # 0  night
@@ -1089,17 +1090,23 @@ def main():
     ap.add_argument("--reuse-video", action="store_true", help="keep work/trailer_video.mkv, redo sound + mux only")
     ap.add_argument("--lang", default="en", choices=["en"] + sorted(locales.LOCALES),
                     help="text language (default: the English original); see locales.py")
+    ap.add_argument("--demo", action="store_true",
+                    help=f'end card says "{DEMO_END}" instead of wishlisting (English only; files get _demo)')
     args = ap.parse_args()
     global LOC
     LOC = locales.LOCALES.get(args.lang)
+    if args.demo and LOC:
+        ap.error("--demo is English only")
     tag = "" if LOC is None else "_" + args.lang          # file suffix: legit_enough_trailer_zh-CN_1080p60.mp4
+    if args.demo:
+        tag = "_demo"
     folder = os.path.join(args.capture, "takes")
     work = args.work or os.path.join(os.path.dirname(os.path.abspath(args.capture)), "work" + tag)
     os.makedirs(work, exist_ok=True)
     os.makedirs(args.out, exist_ok=True)
     names = sorted({s["take"] for s in EDL})
     takes = {nm: Take(folder, nm) for nm in names}
-    cards = [Card(c) for c in CARDS]
+    cards = [Card(dict(c, text=DEMO_END) if args.demo and c["key"] == "wishlist" else c) for c in CARDS]
     subs = None
     if LOC:
         print(f"language: {LOC['name']}", flush=True)

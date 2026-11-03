@@ -909,6 +909,10 @@ namespace LegitEnoughCI
             title.Root.style.display = DisplayStyle.None;
             DropArrivals(false);
             Note($"seed {seed}: day 1 {ShopMood.WeatherFor(seed, 1)}, day 100 {ShopMood.WeatherFor(seed, 100)}");
+            SaveBuffer(UiArt.Logo(true), "logo_dark");
+            SaveBuffer(UiArt.Logo(false), "logo_light");
+            SaveBuffer(UiArt.Mark(), "mark");
+            SaveBuffer(UiArt.Emblem(), "emblem");
             yield return Sec(1.5f);
 
             yield return NightOpen(title);
@@ -917,6 +921,8 @@ namespace LegitEnoughCI
             yield return MakeDocument();
             yield return PrintAndBind();
             yield return HandOver();
+            // A capture of just the first customer (LE_TRAILER_ONLY lists no later take) stops here.
+            if (!Wants("report", "day100card", "news", "tier1", "tier2", "tier3", "dusk", "night_busy", "power", "camera_t3", "os_t3")) yield break;
             yield return ToDay100();
             yield return NewsAndHandbook();
             yield return Upgrades();
@@ -924,13 +930,11 @@ namespace LegitEnoughCI
             yield return PowerCut();
             yield return StudioCamera();
             yield return OsTier3();
-
-            SaveBuffer(UiArt.Logo(true), "logo_dark");
-            SaveBuffer(UiArt.Logo(false), "logo_light");
-            SaveBuffer(UiArt.Mark(), "mark");
-            SaveBuffer(UiArt.Emblem(), "emblem");
             yield return Frames(2);
         }
+
+        static bool Wants(params string[] takes) =>
+            string.IsNullOrEmpty(Only) || Array.Exists(takes, t => Array.IndexOf(Only.Split(','), t) >= 0);
 
         IEnumerator NightOpen(TitleView title)
         {
