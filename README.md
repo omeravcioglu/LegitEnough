@@ -8,7 +8,7 @@
 
 Nothing has to be perfect. Just legit enough.
 
-**[Coming soon on Steam](https://store.steampowered.com/app/5394180/Legit_Enough/)**: wishlist it there.
+**[Free demo out now on Steam](https://store.steampowered.com/app/5394180/Legit_Enough/)**: play it, and wishlist the full game there.
 
 | | |
 |---|---|
@@ -31,17 +31,19 @@ Nothing has to be perfect. Just legit enough.
 - **Every day has a shape:** the morning card, the sign on the door, closing time and the end-of-day ledger.
 
 **Status:** the full core loop and business simulation are playable.
-- **A demo is built from the same code.** It runs about 15 minutes:
+- **The free demo is out on Steam.** It's built from the same code and runs about 15 minutes:
   - **Day 1** is a coached tutorial, with sticky notes and a pointer walking you through Samir's passport.
   - **Day 2** is scripted: rule changes, four visitors (one of them a teaser for the full game) and a guided first visit to the computer's shop.
   - It has Windows and macOS builds. The Mac build is Universal (Apple silicon and Intel), with scripts that notarize it and upload both platforms to Steam from a Mac.
 - **36 achievements:** 15 progress, 10 skill, 4 story and 7 secret, 8 of them hidden. Twelve can be earned in the demo, and the demo banks them for the full game.
 - **Four original music cues** composed in code.
-- **The trailer** is also localized into Simplified Chinese, Turkish, Japanese and Korean: the same cut and music, with translated title cards. The [Steam store page](https://store.steampowered.com/app/5394180/Legit_Enough/) is live as **Coming soon**, with its store art.
-- **Social cuts for the demo launch:**
-  - **Day 1:** a 20-second short of the first customer, start to finish, vertical (Reels, Shorts, TikTok) and horizontal;
-  - an earlier hype cut of the same length;
-  - a version of the main trailer that ends on "FREE DEMO OUT NOW ON STEAM".
+- **The trailer** is also localized into Simplified Chinese, Turkish, Japanese and Korean: the same cut and music, with translated title cards. The [Steam store page](https://store.steampowered.com/app/5394180/Legit_Enough/) lists the full game as **Coming soon**, with the demo to download.
+- **Social cuts for the demo launch**, 20 seconds each, vertical (Reels, Shorts, TikTok) and horizontal:
+  - **the demo teaser:** five beats from the demo's Day 2 at 150 BPM, from Viktor's "French passport. Today." to the logo;
+  - **Day 1:** the first customer, start to finish;
+  - two earlier tries: "Departures" (Day 2's clients flipping onto an airport departures board, to a bossa nova) and a hype cut.
+
+  A version of the main trailer also ends on "FREE DEMO OUT NOW ON STEAM".
 - **Not built yet:** visas, campaign milestones and endings, saving and loading, and more story arcs.
 
 ## Tech stack
@@ -59,7 +61,7 @@ Nothing has to be perfect. Just legit enough.
 | Audio | Sound effects synthesized in code. The music is **four original cues composed in Python** (upright bass, brushes, Rhodes, vibraphone), and a script checks the renders for loudness, peaks and seamless loops. It streams in-game as Vorbis. |
 | Achievements | One catalog drives everything: a read-only tracker on the simulation, the stores (local for the demo, Steam for the full game), the unlock banners, and the badges and Steam icons, which are drawn in code |
 | Testing | An offline test runner with 42 simulation tests (the full game, including a 20-day bot playthrough, and the demo), offline compile checks of the Unity layer, and a batch-mode Unity smoke test with 306 checks |
-| Trailer | A Python pipeline: 60 fps takes recorded from the game, cut on a 100 BPM beat grid, with a synthesized score. Every sound the game made during a take is re-synthesized on the exact frame it happened. A `--lang` switch renders the localized versions in 1080p60 and 2160p60. The 20-second social cuts reuse the same takes at 120 BPM, in vertical and horizontal versions. |
+| Trailer | A Python pipeline: 60 fps takes recorded from the game, cut on a 100 BPM beat grid, with a synthesized score. Every sound the game made during a take is re-synthesized on the exact frame it happened. A `--lang` switch renders the localized versions in 1080p60 and 2160p60. The 20-second social cuts are edited the same way, from takes that include the demo's scripted Day 2, in vertical and horizontal versions. |
 
 ## What I built
 
